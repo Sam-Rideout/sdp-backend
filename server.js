@@ -7,9 +7,6 @@ const { execFile } = require('child_process');
 
 const app = express();
 
-app.use(cors());
-app.use(express.static(path.join(__dirname, 'public')));
-
 const isWindows = process.platform === 'win32';
 
 const FFMPEG_PATH = isWindows
@@ -33,6 +30,10 @@ const MASTER_SONG = path.join(masterFolder, 'master_song.wav');
         fs.mkdirSync(folder);
     }
 });
+
+app.use(cors());
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/final', express.static(finalFolder));
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -144,7 +145,8 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 
         res.json({
             success: true,
-            finalSong: finalFilename
+            finalSong: finalFilename,
+            finalSongUrl: `/final/${finalFilename}`
         });
 
     } catch (error) {
