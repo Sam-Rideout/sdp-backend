@@ -100,7 +100,7 @@ audio{
 <h1>Record The Name Here</h1>
 
 <div class="note">
-    Type the first name, then click Record. After the countdown, listen to the guide tone, then sing the name clearly on one steady note.
+    Type the first name, then click Record. After the countdown, listen to the D major guide chord, then sing the name clearly on one steady note.
 </div>
 
 <input id="nameInput" type="text" placeholder="Recipient First Name">
@@ -144,8 +144,7 @@ const SILENCE_STOP_DELAY_MS = 1000;
 const MIN_RECORDING_TIME_MS = 700;
 const MAX_RECORDING_TIME_MS = 7000;
 
-const TARGET_BEEP_FREQUENCY = 587.33;
-const GUIDE_TONE_DURATION_MS = 2000;
+const GUIDE_CHORD_DURATION_MS = 2200;
 
 const RETURN_URL = 'https://brightlight506.wixstudio.com/sdp-songs/collect-name';
 
@@ -187,28 +186,66 @@ function wait(ms){
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function playGuideTone(){
-    const beepContext = new AudioContext();
-    const oscillator = beepContext.createOscillator();
-    const gain = beepContext.createGain();
+function playPianoNote(context, frequency, startTime, duration, gainValue){
+    const oscillator1 = context.createOscillator();
+    const oscillator2 = context.createOscillator();
+    const oscillator3 = context.createOscillator();
 
-    oscillator.type = 'sine';
-    oscillator.frequency.value = TARGET_BEEP_FREQUENCY;
+    const gain = context.createGain();
+    const filter = context.createBiquadFilter();
 
-    gain.gain.setValueAtTime(0.0, beepContext.currentTime);
-    gain.gain.linearRampToValueAtTime(0.22, beepContext.currentTime + 0.05);
-    gain.gain.setValueAtTime(0.22, beepContext.currentTime + (GUIDE_TONE_DURATION_MS / 1000) - 0.15);
-    gain.gain.linearRampToValueAtTime(0.0, beepContext.currentTime + (GUIDE_TONE_DURATION_MS / 1000));
+    oscillator1.type = 'triangle';
+    oscillator2.type = 'sine';
+    oscillator3.type = 'triangle';
 
-    oscillator.connect(gain);
-    gain.connect(beepContext.destination);
+    oscillator1.frequency.value = frequency;
+    oscillator2.frequency.value = frequency * 2.001;
+    oscillator3.frequency.value = frequency * 3.002;
 
-    oscillator.start();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2400, startTime);
+    filter.frequency.exponentialRampToValueAtTime(900, startTime + duration);
 
-    await wait(GUIDE_TONE_DURATION_MS);
+    gain.gain.setValueAtTime(0.0001, startTime);
+    gain.gain.exponentialRampToValueAtTime(gainValue, startTime + 0.025);
+    gain.gain.exponentialRampToValueAtTime(gainValue * 0.45, startTime + 0.35);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
-    oscillator.stop();
-    beepContext.close();
+    oscillator1.connect(gain);
+    oscillator2.connect(gain);
+    oscillator3.connect(gain);
+
+    gain.connect(filter);
+    filter.connect(context.destination);
+
+    oscillator1.start(startTime);
+    oscillator2.start(startTime);
+    oscillator3.start(startTime);
+
+    oscillator1.stop(startTime + duration + 0.05);
+    oscillator2.stop(startTime + duration + 0.05);
+    oscillator3.stop(startTime + duration + 0.05);
+}
+
+async function playGuideChord(){
+    const chordContext = new AudioContext();
+
+    const now = chordContext.currentTime;
+    const duration = GUIDE_CHORD_DURATION_MS / 1000;
+
+    const d4 = 293.66;
+    const fs4 = 369.99;
+    const a4 = 440.00;
+    const d5 = 587.33;
+
+    playPianoNote(chordContext, d4, now, duration, 0.13);
+    playPianoNote(chordContext, fs4, now + 0.03, duration - 0.03, 0.10);
+    playPianoNote(chordContext, a4, now + 0.06, duration - 0.06, 0.10);
+    playPianoNote(chordContext, d5, now + 0.09, duration - 0.09, 0.08);
+
+    await wait(GUIDE_CHORD_DURATION_MS + 150);
+
+    chordContext.close();
 }
 
 async function runCountdown(){
@@ -223,8 +260,8 @@ async function runCountdown(){
     await wait(1000);
 
     countdownDiv.innerText = 'Listen...';
-    statusDiv.innerText = 'Listen to the guide tone...';
-    await playGuideTone();
+    statusDiv.innerText = 'Listen to the D major guide chord...';
+    await playGuideChord();
 
     countdownDiv.innerText = 'Sing now';
     await wait(300);
