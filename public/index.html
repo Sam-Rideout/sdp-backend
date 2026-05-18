@@ -1,3 +1,6 @@
+# Replace Full File: `public/index.html`
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -26,6 +29,8 @@ button{
     font-size:18px;
     margin:10px;
     cursor:pointer;
+    border:none;
+    border-radius:8px;
 }
 
 button:disabled{
@@ -83,6 +88,13 @@ audio{
     font-size:18px;
     line-height:1.4;
 }
+
+#downloadReturnBtn{
+    display:none;
+    background:white;
+    color:#7b3f00;
+    font-weight:bold;
+}
 </style>
 </head>
 
@@ -100,6 +112,7 @@ audio{
 
 <button id="recordBtn">Record</button>
 <button id="stopBtn" disabled>Stop</button>
+<button id="downloadReturnBtn">Download Song & Return</button>
 
 <div id="countdown"></div>
 <div id="timer">00:00</div>
@@ -134,13 +147,17 @@ const SILENCE_STOP_DELAY_MS = 1000;
 const MIN_RECORDING_TIME_MS = 700;
 const MAX_RECORDING_TIME_MS = 7000;
 
-const TARGET_BEEP_FREQUENCY = 587.33; // D5
+const TARGET_BEEP_FREQUENCY = 587.33;
 const GUIDE_TONE_DURATION_MS = 2000;
 
+const RETURN_URL = 'https://www.bleakney.ca';
+
 let recordingStartedAt = null;
+let latestFinalSongUrl = null;
 
 const recordBtn = document.getElementById('recordBtn');
 const stopBtn = document.getElementById('stopBtn');
+const downloadReturnBtn = document.getElementById('downloadReturnBtn');
 const audioPlayback = document.getElementById('audioPlayback');
 const statusDiv = document.getElementById('status');
 const timerDiv = document.getElementById('timer');
@@ -341,7 +358,13 @@ async function uploadRecording(){
         console.log(result);
 
         if (result.success) {
-            statusDiv.innerText = 'Processing complete: ' + result.finalSong;
+
+            latestFinalSongUrl = `/final/${result.finalSong}`;
+
+            statusDiv.innerText = 'Song complete! Click below to download and return.';
+
+            downloadReturnBtn.style.display = 'inline-block';
+
         } else {
             statusDiv.innerText = 'Processing failed: ' + result.error;
         }
@@ -356,10 +379,12 @@ recordBtn.addEventListener('click', async () => {
     try {
         recordBtn.disabled = true;
         stopBtn.disabled = true;
+        downloadReturnBtn.style.display = 'none';
 
         audioChunks = [];
         audioBlob = null;
         recordingStartedAt = null;
+        latestFinalSongUrl = null;
 
         audioPlayback.removeAttribute('src');
         audioPlayback.load();
@@ -434,7 +459,35 @@ recordBtn.addEventListener('click', async () => {
 stopBtn.addEventListener('click', () => {
     stopRecording('Stopping...');
 });
+
+downloadReturnBtn.addEventListener('click', async () => {
+
+    if (!latestFinalSongUrl) {
+        return;
+    }
+
+    const link = document.createElement('a');
+    link.href = latestFinalSongUrl;
+    link.download = '';
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setTimeout(() => {
+        window.location.href = RETURN_URL;
+    }, 1500);
+});
 </script>
 
 </body>
 </html>
+```
+
+Then run:
+
+```bash
+git add .
+git commit -m "Add download and return button"
+git push
+```
