@@ -16,15 +16,8 @@ const FFMPEG_PATH = isWindows
     ? 'G:\\Working\\FFMpeg\\ffmpeg-2026\\bin\\ffmpeg.exe'
     : 'ffmpeg';
 
-const RUBBERBAND_PATH = isWindows
-    ? 'G:\\Working\\Software\\rubberband\\rubberband.exe'
-    : 'rubberband';
-
-const PITCH_SHIFT_SEMITONES = '2';
-
 const uploadFolder = path.join(__dirname, 'uploads');
 const wavFolder = path.join(__dirname, 'wav');
-const processedFolder = path.join(__dirname, 'processed');
 const finalFolder = path.join(__dirname, 'final');
 const masterFolder = path.join(__dirname, 'master');
 
@@ -33,7 +26,6 @@ const MASTER_SONG = path.join(masterFolder, 'master_song.wav');
 [
     uploadFolder,
     wavFolder,
-    processedFolder,
     finalFolder,
     masterFolder
 ].forEach(folder => {
@@ -94,14 +86,6 @@ function convertToWav(inputPath, outputPath) {
     ], 'FFmpeg convert');
 }
 
-function processWithRubberBand(inputPath, outputPath) {
-    return runCommand(RUBBERBAND_PATH, [
-        '-p', PITCH_SHIFT_SEMITONES,
-        inputPath,
-        outputPath
-    ], 'Rubber Band');
-}
-
 function concatAudio(masterSong, nameAudio, outputFile) {
     return runCommand(FFMPEG_PATH, [
         '-y',
@@ -135,7 +119,6 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 
         console.log('Platform:', process.platform);
         console.log('FFmpeg path:', FFMPEG_PATH);
-        console.log('Rubber Band path:', RUBBERBAND_PATH);
         console.log('Master song:', MASTER_SONG);
 
         if (!fs.existsSync(MASTER_SONG)) {
@@ -146,22 +129,16 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         const baseName = req.file.filename.replace(/\.[^/.]+$/, '');
 
         const wavFilename = baseName + '.wav';
-        const processedFilename = baseName + '_pitch_plus_2.wav';
         const finalFilename = baseName + '_final.mp3';
 
         const wavPath = path.join(wavFolder, wavFilename);
-        const processedPath = path.join(processedFolder, processedFilename);
         const finalPath = path.join(finalFolder, finalFilename);
 
         await convertToWav(inputPath, wavPath);
 
         console.log('Converted to WAV');
 
-        await processWithRubberBand(wavPath, processedPath);
-
-        console.log('Rubber Band complete');
-
-        await concatAudio(MASTER_SONG, processedPath, finalPath);
+        await concatAudio(MASTER_SONG, wavPath, finalPath);
 
         console.log('Final song created');
 

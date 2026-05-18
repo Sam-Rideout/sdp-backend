@@ -78,7 +78,7 @@ audio{
 }
 
 .note{
-    max-width:520px;
+    max-width:560px;
     margin:0 auto 30px;
     font-size:18px;
     line-height:1.4;
@@ -91,7 +91,7 @@ audio{
 <h1>Record The Name Here</h1>
 
 <div class="note">
-    Type the first name, then click Record. After the countdown and tone, sing the name clearly on one steady note.
+    Type the first name, then click Record. After the countdown, listen to the guide tone, then sing the name clearly on one steady note.
 </div>
 
 <input id="nameInput" type="text" placeholder="Recipient First Name">
@@ -135,6 +135,7 @@ const MIN_RECORDING_TIME_MS = 700;
 const MAX_RECORDING_TIME_MS = 7000;
 
 const TARGET_BEEP_FREQUENCY = 587.33; // D5
+const GUIDE_TONE_DURATION_MS = 1200;
 
 let recordingStartedAt = null;
 
@@ -172,7 +173,7 @@ function wait(ms){
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function playBeep(){
+async function playGuideTone(){
     const beepContext = new AudioContext();
     const oscillator = beepContext.createOscillator();
     const gain = beepContext.createGain();
@@ -180,14 +181,17 @@ async function playBeep(){
     oscillator.type = 'sine';
     oscillator.frequency.value = TARGET_BEEP_FREQUENCY;
 
-    gain.gain.value = 0.18;
+    gain.gain.setValueAtTime(0.0, beepContext.currentTime);
+    gain.gain.linearRampToValueAtTime(0.22, beepContext.currentTime + 0.05);
+    gain.gain.setValueAtTime(0.22, beepContext.currentTime + (GUIDE_TONE_DURATION_MS / 1000) - 0.15);
+    gain.gain.linearRampToValueAtTime(0.0, beepContext.currentTime + (GUIDE_TONE_DURATION_MS / 1000));
 
     oscillator.connect(gain);
     gain.connect(beepContext.destination);
 
     oscillator.start();
 
-    await wait(250);
+    await wait(GUIDE_TONE_DURATION_MS);
 
     oscillator.stop();
     beepContext.close();
@@ -204,9 +208,12 @@ async function runCountdown(){
     countdownDiv.innerText = '1';
     await wait(1000);
 
+    countdownDiv.innerText = 'Listen...';
+    statusDiv.innerText = 'Listen to the guide tone...';
+    await playGuideTone();
+
     countdownDiv.innerText = 'Sing now';
-    await playBeep();
-    await wait(250);
+    await wait(300);
 
     countdownDiv.innerText = '';
 }
@@ -336,7 +343,7 @@ async function uploadRecording(){
         if (result.success) {
             statusDiv.innerText = 'Processing complete: ' + result.finalSong;
         } else {
-            statusDiv.innerText = 'Processing failed';
+            statusDiv.innerText = 'Processing failed: ' + result.error;
         }
 
     } catch(err) {
