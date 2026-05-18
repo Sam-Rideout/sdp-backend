@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SDP Recorder Upload Test</title>
+
+<style>
+body{
+    background:#7b3f00;
+    color:white;
+    font-family:Arial;
+    text-align:center;
+    padding-top:80px;
+}
+
+input{
+    padding:12px;
+    width:300px;
+    font-size:18px;
+    margin-bottom:30px;
+}
+
+button{
+    padding:14px 40px;
+    font-size:18px;
+    margin:10px;
+    cursor:pointer;
+}
+
+button:disabled{
+    opacity:0.5;
+    cursor:not-allowed;
+}
+
+audio{
+    width:400px;
+    margin-top:30px;
+    display:none;
+}
+
+#countdown{
+    font-size:56px;
+    font-weight:bold;
+    margin-top:20px;
+    min-height:70px;
+}
+
+#status{
+    margin-top:20px;
+    font-size:20px;
+}
+
+#timer{
+    font-size:32px;
+    font-weight:bold;
+    margin-top:10px;
+}
+
+#volumeMeterWrap{
+    width:300px;
+    height:18px;
+    background:rgba(255,255,255,0.25);
+    margin:20px auto 0;
+    border-radius:20px;
+    overflow:hidden;
+    display:none;
+}
+
+#volumeMeter{
+    width:0%;
+    height:100%;
+    background:white;
+}
+
+.recording{
+    color:#ffdddd;
+}
+
+.note{
+    max-width:520px;
+    margin:0 auto 30px;
+    font-size:18px;
+    line-height:1.4;
+}
+</style>
+</head>
+
+<body>
+
+<h1>Record The Name Here</h1>
+
+<div class="note">
+    Type the first name, then click Record. After the countdown and tone, sing the name clearly on one steady note.
+</div>
+
+<input id="nameInput" type="text" placeholder="Recipient First Name">
+
+<br>
+
+<button id="recordBtn">Record</button>
+<button id="stopBtn" disabled>Stop</button>
+
+<div id="countdown"></div>
+<div id="timer">00:00</div>
+
+<div id="volumeMeterWrap">
+    <div id="volumeMeter"></div>
+</div>
+
+<audio id="audioPlayback" controls></audio>
+
+<div id="status">Ready</div>
+
+<script>
+let mediaRecorder;
+let audioChunks = [];
+let audioBlob;
+
+let timerInterval;
+let secondsElapsed = 0;
+
+let currentStream = null;
+let audioContext = null;
+let analyser = null;
+let sourceNode = null;
+let silenceCheckInterval = null;
+
+let silenceStartedAt = null;
+let hasDetectedVoice = false;
+
+const SILENCE_THRESHOLD = 0.035;
+const SILENCE_STOP_DELAY_MS = 1000;
+const MIN_RECORDING_TIME_MS = 700;
+const MAX_RECORDING_TIME_MS = 7000;
+
+const TARGET_BEEP_FREQUENCY = 587.33; // D5
+
+let recordingStartedAt = null;
+
+const recordBtn = document.getElementById('recordBtn');
+const stopBtn = document.getElementById('stopBtn');
+const audioPlayback = document.getElementById('audioPlayback');
+const statusDiv = document.getElementById('status');
+const timerDiv = document.getElementById('timer');
+const countdownDiv = document.getElementById('countdown');
+const volumeMeterWrap = document.getElementById('volumeMeterWrap');
+const volumeMeter = document.getElementById('volumeMeter');
+
+function formatTime(seconds){
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+
+    return String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+}
+
+function startTimer(){
+    secondsElapsed = 0;
+    timerDiv.innerText = '00:00';
+
+    timerInterval = setInterval(() => {
+        secondsElapsed++;
+        timerDiv.innerText = formatTime(secondsElapsed);
+    }, 1000);
+}
+
+function stopTimer(){
+    clearInterval(timerInterval);
+}
+
+function wait(ms){
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function playBeep(){
+    const beepContext = new AudioContext();
+    const oscillator = beepContext.createOscillator();
+    const gain = beepContext.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.value = TARGET_BEEP_FREQUENCY;
+
+    gain.gain.value = 0.18;
+
+    oscillator.connect(gain);
+    gain.connect(beepContext.destination);
+
+    oscillator.start();
+
+    await wait(250);
+
+    oscillator.stop();
+    beepContext.close();
+}
+
+async function runCountdown(){
+    countdownDiv.innerText = '3';
+    statusDiv.innerText = 'Get ready to sing the name...';
+    await wait(1000);
+
+    countdownDiv.innerText = '2';
+    await wait(1000);
+
+    countdownDiv.innerText = '1';
+    await wait(1000);
+
+    countdownDiv.innerText = 'Sing now';
+    await playBeep();
+    await wait(250);
+
+    countdownDiv.innerText = '';
+}
+
+function calculateVolume(dataArray){
+    let sum = 0;
+
+    for (let i = 0; i < dataArray.length; i++) {
+        const value = (dataArray[i] - 128) / 128;
+        sum += value * value;
+    }
+
+    return Math.sqrt(sum / dataArray.length);
+}
+
+function stopRecording(reason){
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        statusDiv.innerText = reason || 'Stopping...';
+        mediaRecorder.stop();
+    }
+
+    recordBtn.disabled = false;
+    stopBtn.disabled = true;
+}
+
+function startSilenceDetection(stream){
+    audioContext = new AudioContext();
+    analyser = audioContext.createAnalyser();
+    sourceNode = audioContext.createMediaStreamSource(stream);
+
+    analyser.fftSize = 2048;
+
+    sourceNode.connect(analyser);
+
+    const dataArray = new Uint8Array(analyser.fftSize);
+
+    silenceStartedAt = null;
+    hasDetectedVoice = false;
+
+    volumeMeterWrap.style.display = 'block';
+
+    silenceCheckInterval = setInterval(() => {
+        analyser.getByteTimeDomainData(dataArray);
+
+        const volume = calculateVolume(dataArray);
+        const volumePercent = Math.min(100, Math.round(volume * 500));
+
+        volumeMeter.style.width = volumePercent + '%';
+
+        const now = Date.now();
+        const recordingAge = now - recordingStartedAt;
+
+        if (recordingAge > MAX_RECORDING_TIME_MS) {
+            stopRecording('Maximum recording time reached. Processing...');
+            return;
+        }
+
+        if (volume > SILENCE_THRESHOLD) {
+            hasDetectedVoice = true;
+            silenceStartedAt = null;
+            return;
+        }
+
+        if (!hasDetectedVoice || recordingAge < MIN_RECORDING_TIME_MS) {
+            return;
+        }
+
+        if (!silenceStartedAt) {
+            silenceStartedAt = now;
+            return;
+        }
+
+        if (now - silenceStartedAt >= SILENCE_STOP_DELAY_MS) {
+            stopRecording('Silence detected. Processing...');
+        }
+
+    }, 100);
+}
+
+function stopSilenceDetection(){
+    if (silenceCheckInterval) {
+        clearInterval(silenceCheckInterval);
+        silenceCheckInterval = null;
+    }
+
+    if (sourceNode) {
+        sourceNode.disconnect();
+        sourceNode = null;
+    }
+
+    if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+    }
+
+    volumeMeter.style.width = '0%';
+    volumeMeterWrap.style.display = 'none';
+}
+
+async function uploadRecording(){
+    if (!audioBlob) {
+        return;
+    }
+
+    const formData = new FormData();
+
+    const name = document.getElementById('nameInput').value || 'recording';
+
+    formData.append(
+        'audio',
+        audioBlob,
+        `${name}.webm`
+    );
+
+    statusDiv.innerText = 'Uploading and processing...';
+
+    try {
+        const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        console.log(result);
+
+        if (result.success) {
+            statusDiv.innerText = 'Processing complete: ' + result.finalSong;
+        } else {
+            statusDiv.innerText = 'Processing failed';
+        }
+
+    } catch(err) {
+        console.error(err);
+        statusDiv.innerText = 'Upload failed';
+    }
+}
+
+recordBtn.addEventListener('click', async () => {
+    try {
+        recordBtn.disabled = true;
+        stopBtn.disabled = true;
+
+        audioChunks = [];
+        audioBlob = null;
+        recordingStartedAt = null;
+
+        audioPlayback.removeAttribute('src');
+        audioPlayback.load();
+        audioPlayback.style.display = 'none';
+
+        timerDiv.innerText = '00:00';
+        volumeMeter.style.width = '0%';
+        volumeMeterWrap.style.display = 'none';
+
+        currentStream = await navigator.mediaDevices.getUserMedia({
+            audio: true
+        });
+
+        await runCountdown();
+
+        mediaRecorder = new MediaRecorder(currentStream);
+
+        mediaRecorder.ondataavailable = event => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = async () => {
+            stopTimer();
+            stopSilenceDetection();
+
+            audioBlob = new Blob(audioChunks, {
+                type: 'audio/webm'
+            });
+
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            audioPlayback.src = audioUrl;
+            audioPlayback.style.display = 'inline-block';
+
+            statusDiv.innerText = 'Recording complete. Uploading now...';
+            statusDiv.classList.remove('recording');
+
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+
+            await uploadRecording();
+        };
+
+        mediaRecorder.start();
+
+        recordingStartedAt = Date.now();
+
+        startTimer();
+        startSilenceDetection(currentStream);
+
+        stopBtn.disabled = false;
+
+        statusDiv.innerText = '● Recording... sing the name now';
+        statusDiv.classList.add('recording');
+
+    } catch(err) {
+        console.error(err);
+
+        recordBtn.disabled = false;
+        stopBtn.disabled = true;
+        countdownDiv.innerText = '';
+        volumeMeterWrap.style.display = 'none';
+
+        statusDiv.innerText = 'Microphone permission denied';
+    }
+});
+
+stopBtn.addEventListener('click', () => {
+    stopRecording('Stopping...');
+});
+</script>
+
+</body>
+</html>

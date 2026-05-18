@@ -1,0 +1,2 @@
+file 'G:/Working/sdp-backend/master/master_song.wav'
+file 'G:/Working/sdp-backend/processed/Stacy_pitch_up_5.wav'
