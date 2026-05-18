@@ -33,7 +33,6 @@ const MASTER_SONG = path.join(masterFolder, 'master_song.wav');
 
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/final', express.static(finalFolder));
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -47,6 +46,19 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
+
+function deleteFileIfExists(filePath) {
+    if (filePath && fs.existsSync(filePath)) {
+        fs.unlink(filePath, error => {
+            if (error) {
+                console.error('File cleanup failed:', filePath);
+                console.error(error.message);
+            } else {
+                console.log('Deleted:', filePath);
+            }
+        });
+    }
+}
 
 function runCommand(command, args, label) {
     return new Promise((resolve, reject) => {
@@ -108,6 +120,9 @@ function concatAudio(masterSong, nameAudio, outputFile) {
 }
 
 app.post('/upload', upload.single('audio'), async (req, res) => {
+    let inputPath = null;
+    let wavPath = null;
+
     try {
         console.log('Upload route hit.');
 
@@ -118,21 +133,17 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         console.log('File received:');
         console.log(req.file);
 
-        console.log('Platform:', process.platform);
-        console.log('FFmpeg path:', FFMPEG_PATH);
-        console.log('Master song:', MASTER_SONG);
-
         if (!fs.existsSync(MASTER_SONG)) {
             throw new Error('Master song not found at: ' + MASTER_SONG);
         }
 
-        const inputPath = req.file.path;
-        const baseName = req.file.filename.replace(/\.[^/.]+$/, '');
+        inputPath = req.file.path;
 
+        const baseName = req.file.filename.replace(/\.[^/.]+$/, '');
         const wavFilename = baseName + '.wav';
         const finalFilename = baseName + '_final.mp3';
 
-        const wavPath = path.join(wavFolder, wavFilename);
+        wavPath = path.join(wavFolder, wavFilename);
         const finalPath = path.join(finalFolder, finalFilename);
 
         await convertToWav(inputPath, wavPath);
@@ -143,21 +154,45 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 
         console.log('Final song created');
 
+        deleteFileIfExists(inputPath);
+        deleteFileIfExists(wavPath);
+
         res.json({
             success: true,
             finalSong: finalFilename,
-            finalSongUrl: `/final/${finalFilename}`
+            finalSongUrl: `/download/${encodeURIComponent(finalFilename)}`
         });
 
     } catch (error) {
         console.error('Processing failed:');
         console.error(error.message);
 
+        deleteFileIfExists(inputPath);
+        deleteFileIfExists(wavPath);
+
         res.status(500).json({
             success: false,
             error: error.message
         });
     }
+});
+
+app.get('/download/:filename', (req, res) => {
+    const safeFilename = path.basename(req.params.filename);
+    const filePath = path.join(finalFolder, safeFilename);
+
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).send('File not found or already downloaded.');
+    }
+
+    res.download(filePath, safeFilename, error => {
+        if (error) {
+            console.error('Download error:');
+            console.error(error.message);
+        }
+
+        deleteFileIfExists(filePath);
+    });
 });
 
 const PORT = process.env.PORT || 3000;
