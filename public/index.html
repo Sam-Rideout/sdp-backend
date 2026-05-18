@@ -556,15 +556,25 @@ stopBtn.addEventListener('click', () => {
 });
 
 downloadReturnBtn.addEventListener('click', async () => {
+
     if (!latestFinalSongUrl) {
         return;
     }
 
-    window.open(latestFinalSongUrl, '_blank');
+    const link = document.createElement('a');
+
+    link.href = latestFinalSongUrl;
+    link.download = 'SDP-Song.mp3';
+
+    document.body.appendChild(link);
+
+    link.click();
+
+    document.body.removeChild(link);
 
     setTimeout(() => {
         window.location.href = RETURN_URL;
-    }, 1500);
+    }, 1800);
 });
 </script>
 
