@@ -67,15 +67,28 @@ function deleteFileIfExists(filePath) {
     }
 }
 
+function makeCleanDownloadName(internalFilename) {
+    let cleanName = internalFilename
+        .replace(/^\d+_/, '')
+        .replace(/_final\.mp3$/i, '')
+        .replace(/\.[^/.]+$/, '')
+        .replace(/_recording$/i, '')
+        .replace(/[^a-z0-9]+/gi, '-')
+        .replace(/^-+|-+$/g, '');
+
+    if (!cleanName) {
+        cleanName = 'Song';
+    }
+
+    return `Happy-Birthday-${cleanName}.mp3`;
+}
+
 function runCommand(command, args, label) {
-
     return new Promise((resolve, reject) => {
-
         console.log(`Running ${label}:`);
         console.log(command, args.join(' '));
 
         execFile(command, args, (error, stdout, stderr) => {
-
             if (stdout) {
                 console.log(`${label} stdout:`);
                 console.log(stdout);
@@ -89,7 +102,6 @@ function runCommand(command, args, label) {
             if (error) {
                 console.error(`${label} failed:`);
                 console.error(error);
-
                 reject(new Error(`${label} failed: ${error.message}`));
                 return;
             }
@@ -100,9 +112,7 @@ function runCommand(command, args, label) {
 }
 
 function getAudioDuration(filePath) {
-
     return new Promise((resolve, reject) => {
-
         execFile(
             'ffprobe',
             [
@@ -111,9 +121,7 @@ function getAudioDuration(filePath) {
                 '-of', 'default=noprint_wrappers=1:nokey=1',
                 filePath
             ],
-
             (error, stdout) => {
-
                 if (error) {
                     reject(error);
                     return;
@@ -126,9 +134,7 @@ function getAudioDuration(filePath) {
 }
 
 function convertToCleanWav(inputPath, outputPath) {
-
     return runCommand(FFMPEG_PATH, [
-
         '-y',
         '-i', inputPath,
 
@@ -136,7 +142,6 @@ function convertToCleanWav(inputPath, outputPath) {
         '-ac', '1',
 
         '-af',
-
         [
             'silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.10',
             'areverse',
@@ -149,30 +154,20 @@ function convertToCleanWav(inputPath, outputPath) {
         ].join(','),
 
         outputPath
-
     ], 'FFmpeg clean vocal');
 }
 
-function mixNameWithGeneratedChord(
-    masterSong,
-    nameAudio,
-    outputFile,
-    finalDuration
-) {
-
+function mixNameWithGeneratedChord(masterSong, nameAudio, outputFile, finalDuration) {
     console.log('*** USING FINAL PERSONALIZED MIX ENGINE ***');
 
     return runCommand(FFMPEG_PATH, [
-
         '-y',
 
         '-i', masterSong,
         '-i', nameAudio,
 
         '-filter_complex',
-
         [
-
             `[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${MASTER_GAIN}[master]`,
 
             `[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,adelay=${NAME_START_MS}|${NAME_START_MS},volume=${NAME_GAIN}[name]`,
@@ -187,28 +182,23 @@ function mixNameWithGeneratedChord(
             `[chordraw]adelay=${CHORD_START_MS}|${CHORD_START_MS}[chord]`,
 
             '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]'
-
         ].join(';'),
 
         '-map', '[mixed]',
-
         '-t', finalDuration.toString(),
 
         '-acodec', 'libmp3lame',
         '-b:a', '192k',
 
         outputFile
-
     ], 'FFmpeg final personalized mix');
 }
 
 app.post('/upload', upload.single('audio'), async (req, res) => {
-
     let inputPath = null;
     let cleanWavPath = null;
 
     try {
-
         console.log('Upload route hit.');
 
         if (!req.file) {
@@ -222,24 +212,13 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         inputPath = req.file.path;
 
         const baseName = req.file.filename.replace(/\.[^/.]+$/, '');
-
         const cleanWavFilename = baseName + '_clean.wav';
         const finalFilename = baseName + '_final.mp3';
 
-        cleanWavPath = path.join(
-            processedFolder,
-            cleanWavFilename
-        );
+        cleanWavPath = path.join(processedFolder, cleanWavFilename);
+        const finalPath = path.join(finalFolder, finalFilename);
 
-        const finalPath = path.join(
-            finalFolder,
-            finalFilename
-        );
-
-        await convertToCleanWav(
-            inputPath,
-            cleanWavPath
-        );
+        await convertToCleanWav(inputPath, cleanWavPath);
 
         console.log('Name vocal cleaned and converted to WAV');
 
@@ -269,11 +248,11 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         res.json({
             success: true,
             finalSong: finalFilename,
+            downloadFilename: makeCleanDownloadName(finalFilename),
             finalSongUrl: `/download/${encodeURIComponent(finalFilename)}`
         });
 
     } catch (error) {
-
         console.error('Processing failed:');
         console.error(error.message);
 
@@ -288,13 +267,9 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 });
 
 app.get('/download/:filename', (req, res) => {
-
     const safeFilename = path.basename(req.params.filename);
-
-    const filePath = path.join(
-        finalFolder,
-        safeFilename
-    );
+    const filePath = path.join(finalFolder, safeFilename);
+    const downloadFilename = makeCleanDownloadName(safeFilename);
 
     if (!fs.existsSync(filePath)) {
         return res
@@ -302,8 +277,7 @@ app.get('/download/:filename', (req, res) => {
             .send('File not found or already downloaded.');
     }
 
-    res.download(filePath, safeFilename, error => {
-
+    res.download(filePath, downloadFilename, error => {
         if (error) {
             console.error('Download error:');
             console.error(error.message);
