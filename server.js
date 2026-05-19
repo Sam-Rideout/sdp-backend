@@ -25,7 +25,7 @@ const CHORD_START_MS = 16250;
 const CHORD_DURATION_SECONDS = 8;
 
 const NAME_GAIN = 0.72;
-const CHORD_GAIN = 0.45;
+const CHORD_GAIN = 0.15;
 const MASTER_GAIN = 1.0;
 
 [
@@ -73,6 +73,7 @@ function runCommand(command, args, label) {
         console.log(command, args.join(' '));
 
         execFile(command, args, (error, stdout, stderr) => {
+
             if (stdout) {
                 console.log(`${label} stdout:`);
                 console.log(stdout);
@@ -86,6 +87,7 @@ function runCommand(command, args, label) {
             if (error) {
                 console.error(`${label} failed:`);
                 console.error(error);
+
                 reject(new Error(`${label} failed: ${error.message}`));
                 return;
             }
@@ -95,8 +97,36 @@ function runCommand(command, args, label) {
     });
 }
 
+function getAudioDuration(filePath) {
+
+    return new Promise((resolve, reject) => {
+
+        execFile(
+            'ffprobe',
+            [
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                filePath
+            ],
+
+            (error, stdout) => {
+
+                if (error) {
+                    reject(error);
+                    return;
+                }
+
+                resolve(parseFloat(stdout.trim()));
+            }
+        );
+    });
+}
+
 function convertToCleanWav(inputPath, outputPath) {
+
     return runCommand(FFMPEG_PATH, [
+
         '-y',
         '-i', inputPath,
 
@@ -104,6 +134,7 @@ function convertToCleanWav(inputPath, outputPath) {
         '-ac', '1',
 
         '-af',
+
         [
             'silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.10',
             'areverse',
@@ -116,20 +147,30 @@ function convertToCleanWav(inputPath, outputPath) {
         ].join(','),
 
         outputPath
+
     ], 'FFmpeg clean vocal');
 }
 
-function mixNameWithGeneratedChord(masterSong, nameAudio, outputFile) {
-    console.log('*** USING CLOUD GENERATED D CHORD MIX VERSION - OBVIOUS CHORD TEST ***');
+function mixNameWithGeneratedChord(
+    masterSong,
+    nameAudio,
+    outputFile,
+    finalDuration
+) {
+
+    console.log('*** USING FINAL PERSONALIZED MIX ENGINE ***');
 
     return runCommand(FFMPEG_PATH, [
+
         '-y',
 
         '-i', masterSong,
         '-i', nameAudio,
 
         '-filter_complex',
+
         [
+
             `[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${MASTER_GAIN}[master]`,
 
             `[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,adelay=${NAME_START_MS}|${NAME_START_MS},volume=${NAME_GAIN}[name]`,
@@ -143,22 +184,29 @@ function mixNameWithGeneratedChord(masterSong, nameAudio, outputFile) {
 
             `[chordraw]adelay=${CHORD_START_MS}|${CHORD_START_MS}[chord]`,
 
-            '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[out]'
+            '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]'
+
         ].join(';'),
 
-        '-map', '[out]',
+        '-map', '[mixed]',
+
+        '-t', finalDuration.toString(),
+
         '-acodec', 'libmp3lame',
         '-b:a', '192k',
 
         outputFile
-    ], 'FFmpeg overlay mix with generated D chord');
+
+    ], 'FFmpeg final personalized mix');
 }
 
 app.post('/upload', upload.single('audio'), async (req, res) => {
+
     let inputPath = null;
     let cleanWavPath = null;
 
     try {
+
         console.log('Upload route hit.');
 
         if (!req.file) {
@@ -172,17 +220,44 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         inputPath = req.file.path;
 
         const baseName = req.file.filename.replace(/\.[^/.]+$/, '');
+
         const cleanWavFilename = baseName + '_clean.wav';
         const finalFilename = baseName + '_final.mp3';
 
-        cleanWavPath = path.join(processedFolder, cleanWavFilename);
-        const finalPath = path.join(finalFolder, finalFilename);
+        cleanWavPath = path.join(
+            processedFolder,
+            cleanWavFilename
+        );
 
-        await convertToCleanWav(inputPath, cleanWavPath);
+        const finalPath = path.join(
+            finalFolder,
+            finalFilename
+        );
+
+        await convertToCleanWav(
+            inputPath,
+            cleanWavPath
+        );
 
         console.log('Name vocal cleaned and converted to WAV');
 
-        await mixNameWithGeneratedChord(MASTER_SONG, cleanWavPath, finalPath);
+        const nameDuration = await getAudioDuration(cleanWavPath);
+
+        console.log('Clean name duration:', nameDuration);
+
+        const finalDuration =
+            (NAME_START_MS / 1000) +
+            nameDuration +
+            3;
+
+        console.log('Final output duration:', finalDuration);
+
+        await mixNameWithGeneratedChord(
+            MASTER_SONG,
+            cleanWavPath,
+            finalPath,
+            finalDuration
+        );
 
         console.log('Final song created');
 
@@ -196,6 +271,7 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         });
 
     } catch (error) {
+
         console.error('Processing failed:');
         console.error(error.message);
 
@@ -210,14 +286,22 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 });
 
 app.get('/download/:filename', (req, res) => {
+
     const safeFilename = path.basename(req.params.filename);
-    const filePath = path.join(finalFolder, safeFilename);
+
+    const filePath = path.join(
+        finalFolder,
+        safeFilename
+    );
 
     if (!fs.existsSync(filePath)) {
-        return res.status(404).send('File not found or already downloaded.');
+        return res
+            .status(404)
+            .send('File not found or already downloaded.');
     }
 
     res.download(filePath, safeFilename, error => {
+
         if (error) {
             console.error('Download error:');
             console.error(error.message);
@@ -232,3 +316,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
