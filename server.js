@@ -13,6 +13,10 @@ const FFMPEG_PATH = isWindows
     ? 'G:\\Working\\FFMpeg\\ffmpeg-2026\\bin\\ffmpeg.exe'
     : 'ffmpeg';
 
+const FFPROBE_PATH = isWindows
+    ? 'G:\\Working\\FFMpeg\\ffmpeg-2026\\bin\\ffprobe.exe'
+    : 'ffprobe';
+
 const uploadFolder = path.join(__dirname, 'uploads');
 const finalFolder = path.join(__dirname, 'final');
 const masterFolder = path.join(__dirname, 'master');
@@ -27,6 +31,7 @@ const CHORD_DURATION_SECONDS = 8;
 const NAME_GAIN = 0.72;
 const CHORD_GAIN = 0.1;
 const MASTER_GAIN = 1.0;
+const END_TAIL_SECONDS = 1.5;
 
 [
     uploadFolder,
@@ -114,7 +119,7 @@ function runCommand(command, args, label) {
 function getAudioDuration(filePath) {
     return new Promise((resolve, reject) => {
         execFile(
-            'ffprobe',
+            FFPROBE_PATH,
             [
                 '-v', 'error',
                 '-show_entries', 'format=duration',
@@ -150,6 +155,8 @@ function convertToCleanWav(inputPath, outputPath) {
             'highpass=f=120',
             'lowpass=f=8000',
             'loudnorm=I=-22:TP=-3:LRA=9',
+            'acompressor=threshold=-18dB:ratio=2.2:attack=8:release=120:makeup=1.5',
+            'aecho=0.8:0.18:35:0.08',
             `volume=${NAME_GAIN}`
         ].join(','),
 
@@ -158,7 +165,9 @@ function convertToCleanWav(inputPath, outputPath) {
 }
 
 function mixNameWithGeneratedChord(masterSong, nameAudio, outputFile, finalDuration) {
-    console.log('*** USING FINAL PERSONALIZED MIX ENGINE ***');
+    console.log('*** USING POLISHED PERSONALIZED MIX ENGINE ***');
+
+    const fadeStart = Math.max(0, finalDuration - 0.7);
 
     return runCommand(FFMPEG_PATH, [
         '-y',
@@ -181,17 +190,19 @@ function mixNameWithGeneratedChord(masterSong, nameAudio, outputFile, finalDurat
 
             `[chordraw]adelay=${CHORD_START_MS}|${CHORD_START_MS}[chord]`,
 
-            '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]'
+            '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]',
+
+            `[mixed]afade=t=out:st=${fadeStart}:d=0.7[out]`
         ].join(';'),
 
-        '-map', '[mixed]',
+        '-map', '[out]',
         '-t', finalDuration.toString(),
 
         '-acodec', 'libmp3lame',
         '-b:a', '192k',
 
         outputFile
-    ], 'FFmpeg final personalized mix');
+    ], 'FFmpeg polished personalized mix');
 }
 
 app.post('/upload', upload.single('audio'), async (req, res) => {
@@ -229,7 +240,7 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         const finalDuration =
             (NAME_START_MS / 1000) +
             nameDuration +
-            1.5;
+            END_TAIL_SECONDS;
 
         console.log('Final output duration:', finalDuration);
 
@@ -292,3 +303,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
