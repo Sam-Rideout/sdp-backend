@@ -25,7 +25,7 @@ const CHORD_START_MS = 16250;
 const CHORD_DURATION_SECONDS = 8;
 
 const NAME_GAIN = 0.72;
-const CHORD_GAIN = 0.15;
+const CHORD_GAIN = 0.10;
 const MASTER_GAIN = 1.0;
 
 [
