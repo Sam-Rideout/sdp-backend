@@ -25,7 +25,7 @@ const CHORD_START_MS = 16250;
 const CHORD_DURATION_SECONDS = 8;
 
 const NAME_GAIN = 0.72;
-const CHORD_GAIN = 0.10;
+const CHORD_GAIN = 0.1;
 const MASTER_GAIN = 1.0;
 
 [
@@ -68,7 +68,9 @@ function deleteFileIfExists(filePath) {
 }
 
 function runCommand(command, args, label) {
+
     return new Promise((resolve, reject) => {
+
         console.log(`Running ${label}:`);
         console.log(command, args.join(' '));
 
@@ -248,7 +250,7 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         const finalDuration =
             (NAME_START_MS / 1000) +
             nameDuration +
-            3;
+            1.5;
 
         console.log('Final output duration:', finalDuration);
 
@@ -316,4 +318,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
-
