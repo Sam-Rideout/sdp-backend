@@ -28,7 +28,7 @@ const NAME_START_MS = 18000;
 const CHORD_START_MS = 16250;
 const CHORD_DURATION_SECONDS = 8;
 
-const NAME_GAIN = 0.72;
+const NAME_GAIN = 0.9;
 const CHORD_GAIN = 0.1;
 const MASTER_GAIN = 1.0;
 const END_TAIL_SECONDS = 1.5;
@@ -73,6 +73,7 @@ function deleteFileIfExists(filePath) {
 }
 
 function makeCleanDownloadName(internalFilename) {
+
     let cleanName = internalFilename
         .replace(/^\d+_/, '')
         .replace(/_final\.mp3$/i, '')
@@ -89,11 +90,14 @@ function makeCleanDownloadName(internalFilename) {
 }
 
 function runCommand(command, args, label) {
+
     return new Promise((resolve, reject) => {
+
         console.log(`Running ${label}:`);
         console.log(command, args.join(' '));
 
         execFile(command, args, (error, stdout, stderr) => {
+
             if (stdout) {
                 console.log(`${label} stdout:`);
                 console.log(stdout);
@@ -107,6 +111,7 @@ function runCommand(command, args, label) {
             if (error) {
                 console.error(`${label} failed:`);
                 console.error(error);
+
                 reject(new Error(`${label} failed: ${error.message}`));
                 return;
             }
@@ -117,7 +122,9 @@ function runCommand(command, args, label) {
 }
 
 function getAudioDuration(filePath) {
+
     return new Promise((resolve, reject) => {
+
         execFile(
             FFPROBE_PATH,
             [
@@ -126,7 +133,9 @@ function getAudioDuration(filePath) {
                 '-of', 'default=noprint_wrappers=1:nokey=1',
                 filePath
             ],
+
             (error, stdout) => {
+
                 if (error) {
                     reject(error);
                     return;
@@ -139,7 +148,9 @@ function getAudioDuration(filePath) {
 }
 
 function convertToCleanWav(inputPath, outputPath) {
+
     return runCommand(FFMPEG_PATH, [
+
         '-y',
         '-i', inputPath,
 
@@ -147,6 +158,7 @@ function convertToCleanWav(inputPath, outputPath) {
         '-ac', '1',
 
         '-af',
+
         [
             'silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.10',
             'areverse',
@@ -155,28 +167,45 @@ function convertToCleanWav(inputPath, outputPath) {
             'highpass=f=120',
             'lowpass=f=8000',
             'loudnorm=I=-22:TP=-3:LRA=9',
-            'acompressor=threshold=-18dB:ratio=2.2:attack=8:release=120:makeup=1.5',
+
+            'acompressor=threshold=-20dB:ratio=1.8:attack=8:release=120:makeup=2.5',
+
             'aecho=0.8:0.18:35:0.08',
+
             `volume=${NAME_GAIN}`
+
         ].join(','),
 
         outputPath
+
     ], 'FFmpeg clean vocal');
 }
 
-function mixNameWithGeneratedChord(masterSong, nameAudio, outputFile, finalDuration) {
+function mixNameWithGeneratedChord(
+    masterSong,
+    nameAudio,
+    outputFile,
+    finalDuration
+) {
+
     console.log('*** USING POLISHED PERSONALIZED MIX ENGINE ***');
 
-    const fadeStart = Math.max(0, finalDuration - 0.7);
+    const fadeStart = Math.max(
+        0,
+        finalDuration - 0.7
+    );
 
     return runCommand(FFMPEG_PATH, [
+
         '-y',
 
         '-i', masterSong,
         '-i', nameAudio,
 
         '-filter_complex',
+
         [
+
             `[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${MASTER_GAIN}[master]`,
 
             `[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,adelay=${NAME_START_MS}|${NAME_START_MS},volume=${NAME_GAIN}[name]`,
@@ -193,23 +222,28 @@ function mixNameWithGeneratedChord(masterSong, nameAudio, outputFile, finalDurat
             '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]',
 
             `[mixed]afade=t=out:st=${fadeStart}:d=0.7[out]`
+
         ].join(';'),
 
         '-map', '[out]',
+
         '-t', finalDuration.toString(),
 
         '-acodec', 'libmp3lame',
         '-b:a', '192k',
 
         outputFile
+
     ], 'FFmpeg polished personalized mix');
 }
 
 app.post('/upload', upload.single('audio'), async (req, res) => {
+
     let inputPath = null;
     let cleanWavPath = null;
 
     try {
+
         console.log('Upload route hit.');
 
         if (!req.file) {
@@ -223,13 +257,24 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         inputPath = req.file.path;
 
         const baseName = req.file.filename.replace(/\.[^/.]+$/, '');
+
         const cleanWavFilename = baseName + '_clean.wav';
         const finalFilename = baseName + '_final.mp3';
 
-        cleanWavPath = path.join(processedFolder, cleanWavFilename);
-        const finalPath = path.join(finalFolder, finalFilename);
+        cleanWavPath = path.join(
+            processedFolder,
+            cleanWavFilename
+        );
 
-        await convertToCleanWav(inputPath, cleanWavPath);
+        const finalPath = path.join(
+            finalFolder,
+            finalFilename
+        );
+
+        await convertToCleanWav(
+            inputPath,
+            cleanWavPath
+        );
 
         console.log('Name vocal cleaned and converted to WAV');
 
@@ -264,6 +309,7 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         });
 
     } catch (error) {
+
         console.error('Processing failed:');
         console.error(error.message);
 
@@ -278,24 +324,38 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 });
 
 app.get('/download/:filename', (req, res) => {
+
     const safeFilename = path.basename(req.params.filename);
-    const filePath = path.join(finalFolder, safeFilename);
-    const downloadFilename = makeCleanDownloadName(safeFilename);
+
+    const filePath = path.join(
+        finalFolder,
+        safeFilename
+    );
+
+    const downloadFilename =
+        makeCleanDownloadName(safeFilename);
 
     if (!fs.existsSync(filePath)) {
+
         return res
             .status(404)
             .send('File not found or already downloaded.');
     }
 
-    res.download(filePath, downloadFilename, error => {
-        if (error) {
-            console.error('Download error:');
-            console.error(error.message);
-        }
+    res.download(
+        filePath,
+        downloadFilename,
 
-        deleteFileIfExists(filePath);
-    });
+        error => {
+
+            if (error) {
+                console.error('Download error:');
+                console.error(error.message);
+            }
+
+            deleteFileIfExists(filePath);
+        }
+    );
 });
 
 const PORT = process.env.PORT || 3000;
@@ -303,4 +363,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
-
