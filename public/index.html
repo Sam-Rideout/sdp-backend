@@ -275,7 +275,7 @@ async function playGuideChord(){
     const now =
         context.currentTime + 0.05;
 
-    const duration = 3.4;
+    const duration = 2.4;
 
     const notes = [
 
@@ -334,7 +334,7 @@ async function playGuideChord(){
         osc.stop(start + duration + 0.2);
     });
 
-    await wait(3600);
+    await wait(2800);
 
     context.close();
 }
