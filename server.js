@@ -27,8 +27,8 @@ const processedFolder = path.join(__dirname, 'processed');
 const MASTER_SONG = path.join(masterFolder, 'master_song.wav');
 const PREVIEW_TAG = path.join(masterFolder, 'preview_tag.wav');
 
-const NAME_START_MS = 18000;
-const CHORD_START_MS = 16250;
+const NAME_START_MS = 57732;
+const CHORD_START_MS = 56380;
 const CHORD_DURATION_SECONDS = 8;
 
 const NAME_GAIN = 1.3;
