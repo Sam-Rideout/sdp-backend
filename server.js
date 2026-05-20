@@ -43,7 +43,7 @@ const CLIPPED_DB = -0.5;
 
 const TEMP_FILE_MAX_AGE_MINUTES = 10;
 const CLEANUP_INTERVAL_MINUTES = 10;
-const DOWNLOAD_DELETE_DELAY_MS = 30000;
+const DOWNLOAD_DELETE_DELAY_MS = 120000;
 
 const usedPreviewFiles = new Set();
 
