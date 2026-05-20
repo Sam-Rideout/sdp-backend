@@ -260,31 +260,34 @@ async function playGuideChord(){
     const context =
         new AudioContext();
 
-    const master =
+    const masterGain =
         context.createGain();
 
-    master.gain.value = 0.95;
-
-    master.connect(
-        context.destination
+    masterGain.gain.setValueAtTime(
+        0.75,
+        context.currentTime
     );
 
-    const notes = [
-
-        146.83,
-        220.00,
-        293.66,
-        369.99,
-        440.00,
-        587.33
-    ];
+    masterGain.connect(
+        context.destination
+    );
 
     const now =
         context.currentTime + 0.05;
 
-    const duration = 2.4;
+    const duration = 3.4;
 
-    notes.forEach((freq, index) => {
+    const notes = [
+
+        { frequency:146.83, delay:0.00, level:0.12 },
+        { frequency:220.00, delay:0.03, level:0.10 },
+        { frequency:293.66, delay:0.06, level:0.11 },
+        { frequency:369.99, delay:0.09, level:0.09 },
+        { frequency:440.00, delay:0.12, level:0.08 },
+        { frequency:587.33, delay:0.16, level:0.06 }
+    ];
+
+    notes.forEach(note => {
 
         const osc =
             context.createOscillator();
@@ -294,10 +297,13 @@ async function playGuideChord(){
 
         osc.type = 'triangle';
 
-        osc.frequency.value = freq;
+        osc.frequency.setValueAtTime(
+            note.frequency,
+            now
+        );
 
         const start =
-            now + index * 0.025;
+            now + note.delay;
 
         gain.gain.setValueAtTime(
             0.0001,
@@ -305,13 +311,13 @@ async function playGuideChord(){
         );
 
         gain.gain.exponentialRampToValueAtTime(
-            0.12,
+            note.level,
             start + 0.02
         );
 
         gain.gain.exponentialRampToValueAtTime(
-            0.055,
-            start + 0.45
+            note.level * 0.55,
+            start + 0.40
         );
 
         gain.gain.exponentialRampToValueAtTime(
@@ -321,14 +327,14 @@ async function playGuideChord(){
 
         osc.connect(gain);
 
-        gain.connect(master);
+        gain.connect(masterGain);
 
         osc.start(start);
 
         osc.stop(start + duration + 0.2);
     });
 
-    await wait(2800);
+    await wait(3600);
 
     context.close();
 }
