@@ -369,7 +369,9 @@ function createPreviewWithTag(
     cleanFinalPath,
     previewOutputPath
 ) {
-    if (!fs.existsSync(PREVIEW_TAG)) {
+
+    if(!fs.existsSync(PREVIEW_TAG)){
+
         console.warn(
             'Preview tag file missing. Creating preview without voice tag:',
             PREVIEW_TAG
@@ -379,49 +381,72 @@ function createPreviewWithTag(
             FFMPEG_PATH,
             [
                 '-y',
+
                 '-i',
                 cleanFinalPath,
+
                 '-filter_complex',
+
                 '[0:a]volume=0.92[out]',
+
                 '-map',
                 '[out]',
+
                 '-acodec',
                 'libmp3lame',
+
                 '-b:a',
                 '192k',
+
                 previewOutputPath
             ],
+
             'FFmpeg preview copy without tag'
         );
     }
 
     return runCommand(
+
         FFMPEG_PATH,
+
         [
             '-y',
+
             '-i',
             cleanFinalPath,
+
             '-i',
             PREVIEW_TAG,
+
             '-filter_complex',
+
             [
+
                 '[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.92[main]',
-                '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.38,adelay=2500|2500[tag1]',
-                '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.28,adelay=9000|9000[tag2]',
+
+                '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.75,adelay=2500|2500[tag1]',
+
+                '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.55,adelay=9000|9000[tag2]',
+
                 '[main][tag1][tag2]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[out]'
+
             ].join(';'),
+
             '-map',
             '[out]',
+
             '-acodec',
             'libmp3lame',
+
             '-b:a',
             '192k',
+
             previewOutputPath
         ],
+
         'FFmpeg watermarked preview'
     );
 }
-
 app.post(
     '/upload',
     upload.single('audio'),
