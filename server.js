@@ -17,59 +17,40 @@ const FFPROBE_PATH = isWindows
     ? 'G:\\Working\\FFMpeg\\ffmpeg-2026\\bin\\ffprobe.exe'
     : 'ffprobe';
 
-const NULL_OUTPUT =
-    isWindows ? 'NUL' : '/dev/null';
+const NULL_OUTPUT = isWindows ? 'NUL' : '/dev/null';
 
-const uploadFolder =
-    path.join(__dirname, 'uploads');
+const uploadFolder = path.join(__dirname, 'uploads');
+const finalFolder = path.join(__dirname, 'final');
+const masterFolder = path.join(__dirname, 'master');
+const processedFolder = path.join(__dirname, 'processed');
 
-const finalFolder =
-    path.join(__dirname, 'final');
-
-const masterFolder =
-    path.join(__dirname, 'master');
-
-const processedFolder =
-    path.join(__dirname, 'processed');
-
-const MASTER_SONG =
-    path.join(
-        masterFolder,
-        'master_song.wav'
-    );
+const MASTER_SONG = path.join(masterFolder, 'master_song.wav');
 
 const NAME_START_MS = 18000;
-
 const CHORD_START_MS = 16250;
-
 const CHORD_DURATION_SECONDS = 8;
 
 const NAME_GAIN = 1.3;
-
 const CHORD_GAIN = 0.06;
-
 const MASTER_GAIN = 1.0;
-
 const END_TAIL_SECONDS = 1.5;
 
 const MIN_NAME_SECONDS = 0.4;
-
 const MAX_NAME_SECONDS = 6.0;
-
 const TOO_QUIET_DB = -30;
-
 const CLIPPED_DB = -0.5;
+
+const TEMP_FILE_MAX_AGE_MINUTES = 10;
+const CLEANUP_INTERVAL_MINUTES = 10;
+const DOWNLOAD_DELETE_DELAY_MS = 30000;
 
 [
     uploadFolder,
     finalFolder,
     masterFolder,
     processedFolder
-
 ].forEach(folder => {
-
     if (!fs.existsSync(folder)) {
-
         fs.mkdirSync(folder);
     }
 });
@@ -82,199 +63,138 @@ app.use(
     )
 );
 
-const storage =
-    multer.diskStorage({
-
-    destination:
-        (req, file, cb) => {
-
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
         cb(null, uploadFolder);
     },
 
-    filename:
-        (req, file, cb) => {
+    filename: (req, file, cb) => {
+        const timestamp = Date.now();
 
-        const timestamp =
-            Date.now();
-
-        const safeName =
-            file.originalname.replace(
-                /[^a-z0-9.\-_]/gi,
-                '_'
-            );
-
-        cb(
-            null,
-            `${timestamp}_${safeName}`
+        const safeName = file.originalname.replace(
+            /[^a-z0-9.\-_]/gi,
+            '_'
         );
+
+        cb(null, `${timestamp}_${safeName}`);
     }
 });
 
-const upload =
-    multer({ storage });
+const upload = multer({ storage });
 
-function deleteFileIfExists(filePath){
-
-    if (
-        filePath &&
-        fs.existsSync(filePath)
-    ) {
-
-        fs.unlink(
-            filePath,
-
-            error => {
-
-                if (error) {
-
-                    console.error(
-                        'File cleanup failed:',
-                        filePath
-                    );
-
-                    console.error(
-                        error.message
-                    );
-
-                } else {
-
-                    console.log(
-                        'Deleted:',
-                        filePath
-                    );
-                }
+function deleteFileIfExists(filePath) {
+    if (filePath && fs.existsSync(filePath)) {
+        fs.unlink(filePath, error => {
+            if (error) {
+                console.error('File cleanup failed:', filePath);
+                console.error(error.message);
+            } else {
+                console.log('Deleted:', filePath);
             }
-        );
+        });
     }
 }
 
-function makeCleanDownloadName(
-    internalFilename
-){
+function cleanupOldFiles(folder, maxAgeMinutes) {
+    const maxAgeMs = maxAgeMinutes * 60 * 1000;
 
-    let cleanName =
-        internalFilename
+    fs.readdir(folder, (readError, files) => {
+        if (readError) {
+            console.error('Cleanup read failed:', folder);
+            console.error(readError.message);
+            return;
+        }
 
-        .replace(
-            /^\d+_/,
-            ''
-        )
+        files.forEach(file => {
+            const filePath = path.join(folder, file);
 
-        .replace(
-            /_final\.mp3$/i,
-            ''
-        )
+            fs.stat(filePath, (statError, stats) => {
+                if (statError) {
+                    return;
+                }
 
-        .replace(
-            /\.[^/.]+$/,
-            ''
-        )
+                if (!stats.isFile()) {
+                    return;
+                }
 
-        .replace(
-            /_recording$/i,
-            ''
-        )
+                const ageMs = Date.now() - stats.mtimeMs;
 
-        .replace(
-            /[^a-z0-9]+/gi,
-            '-'
-        )
+                if (ageMs > maxAgeMs) {
+                    fs.unlink(filePath, unlinkError => {
+                        if (unlinkError) {
+                            console.error('Old temp cleanup failed:', filePath);
+                            console.error(unlinkError.message);
+                        } else {
+                            console.log('Cleaned old temp file:', filePath);
+                        }
+                    });
+                }
+            });
+        });
+    });
+}
 
-        .replace(
-            /^-+|-+$/g,
-            ''
-        );
+function runScheduledCleanup() {
+    cleanupOldFiles(uploadFolder, TEMP_FILE_MAX_AGE_MINUTES);
+    cleanupOldFiles(processedFolder, TEMP_FILE_MAX_AGE_MINUTES);
+    cleanupOldFiles(finalFolder, TEMP_FILE_MAX_AGE_MINUTES);
+}
+
+function makeCleanDownloadName(internalFilename) {
+    let cleanName = internalFilename
+        .replace(/^\d+_/, '')
+        .replace(/_final\.mp3$/i, '')
+        .replace(/\.[^/.]+$/, '')
+        .replace(/_recording$/i, '')
+        .replace(/[^a-z0-9]+/gi, '-')
+        .replace(/^-+|-+$/g, '');
 
     if (!cleanName) {
-
         cleanName = 'Song';
     }
 
     return `Happy-Birthday-${cleanName}.mp3`;
 }
 
-function runCommand(
-    command,
-    args,
-    label
-){
+function runCommand(command, args, label) {
+    return new Promise((resolve, reject) => {
+        console.log(`Running ${label}:`);
+        console.log(command, args.join(' '));
 
-    return new Promise(
-        (resolve, reject) => {
+        execFile(command, args, (error, stdout, stderr) => {
+            if (stdout) {
+                console.log(`${label} stdout:`);
+                console.log(stdout);
+            }
 
-        console.log(
-            `Running ${label}:`
-        );
+            if (stderr) {
+                console.log(`${label} stderr:`);
+                console.log(stderr);
+            }
 
-        console.log(
-            command,
-            args.join(' ')
-        );
+            if (error) {
+                console.error(`${label} failed:`);
+                console.error(error);
 
-        execFile(
+                reject(
+                    new Error(`${label} failed: ${error.message}`)
+                );
 
-            command,
-            args,
+                return;
+            }
 
-            (
-                error,
+            resolve({
                 stdout,
                 stderr
-            ) => {
-
-                if (stdout) {
-
-                    console.log(
-                        `${label} stdout:`
-                    );
-
-                    console.log(stdout);
-                }
-
-                if (stderr) {
-
-                    console.log(
-                        `${label} stderr:`
-                    );
-
-                    console.log(stderr);
-                }
-
-                if (error) {
-
-                    console.error(
-                        `${label} failed:`
-                    );
-
-                    console.error(error);
-
-                    reject(
-                        new Error(
-                            `${label} failed: ${error.message}`
-                        )
-                    );
-
-                    return;
-                }
-
-                resolve({
-                    stdout,
-                    stderr
-                });
-            }
-        );
+            });
+        });
     });
 }
 
-function getAudioDuration(filePath){
-
-    return new Promise(
-        (resolve, reject) => {
-
+function getAudioDuration(filePath) {
+    return new Promise((resolve, reject) => {
         execFile(
-
             FFPROBE_PATH,
-
             [
                 '-v',
                 'error',
@@ -287,37 +207,24 @@ function getAudioDuration(filePath){
 
                 filePath
             ],
-
-            (
-                error,
-                stdout
-            ) => {
-
+            (error, stdout) => {
                 if (error) {
-
                     reject(error);
                     return;
                 }
 
                 resolve(
-                    parseFloat(
-                        stdout.trim()
-                    )
+                    parseFloat(stdout.trim())
                 );
             }
         );
     });
 }
 
-function analyzeAudioVolume(filePath){
-
-    return new Promise(
-        (resolve, reject) => {
-
+function analyzeAudioVolume(filePath) {
+    return new Promise((resolve, reject) => {
         execFile(
-
             FFMPEG_PATH,
-
             [
                 '-i',
                 filePath,
@@ -330,113 +237,66 @@ function analyzeAudioVolume(filePath){
 
                 NULL_OUTPUT
             ],
+            (error, stdout, stderr) => {
+                const output = `${stdout}\n${stderr}`;
 
-            (
-                error,
-                stdout,
-                stderr
-            ) => {
+                const maxMatch = output.match(
+                    /max_volume:\s*(-?\d+(\.\d+)?) dB/i
+                );
 
-                const output =
-                    `${stdout}\n${stderr}`;
-
-                const maxMatch =
-                    output.match(
-                        /max_volume:\s*(-?\d+(\.\d+)?) dB/i
-                    );
-
-                const meanMatch =
-                    output.match(
-                        /mean_volume:\s*(-?\d+(\.\d+)?) dB/i
-                    );
+                const meanMatch = output.match(
+                    /mean_volume:\s*(-?\d+(\.\d+)?) dB/i
+                );
 
                 if (!maxMatch) {
-
                     reject(
-                        new Error(
-                            'Could not analyze recording volume.'
-                        )
+                        new Error('Could not analyze recording volume.')
                     );
 
                     return;
                 }
 
                 resolve({
-
-                    maxVolumeDb:
-                        parseFloat(
-                            maxMatch[1]
-                        ),
-
-                    meanVolumeDb:
-                        meanMatch
-                            ? parseFloat(
-                                meanMatch[1]
-                            )
-                            : null
+                    maxVolumeDb: parseFloat(maxMatch[1]),
+                    meanVolumeDb: meanMatch
+                        ? parseFloat(meanMatch[1])
+                        : null
                 });
             }
         );
     });
 }
 
-function validateRecordingQuality(
-    duration,
-    volumeInfo
-){
-
-    if (
-        duration <
-        MIN_NAME_SECONDS
-    ) {
-
+function validateRecordingQuality(duration, volumeInfo) {
+    if (duration < MIN_NAME_SECONDS) {
         throw new Error(
             'Recording is too short. Please sing the name clearly.'
         );
     }
 
-    if (
-        duration >
-        MAX_NAME_SECONDS
-    ) {
-
+    if (duration > MAX_NAME_SECONDS) {
         throw new Error(
             'Recording is too long. Please sing only the first name.'
         );
     }
 
-    if (
-        volumeInfo.maxVolumeDb <
-        TOO_QUIET_DB
-    ) {
-
+    if (volumeInfo.maxVolumeDb < TOO_QUIET_DB) {
         throw new Error(
             'Recording is too quiet. Please sing closer to the microphone.'
         );
     }
 
-    if (
-        volumeInfo.maxVolumeDb >
-        CLIPPED_DB
-    ) {
-
+    if (volumeInfo.maxVolumeDb > CLIPPED_DB) {
         throw new Error(
             'Recording is too loud or distorted. Please sing softer or farther from the microphone.'
         );
     }
 }
 
-function convertToCleanWav(
-    inputPath,
-    outputPath
-){
-
+function convertToCleanWav(inputPath, outputPath) {
     return runCommand(
-
         FFMPEG_PATH,
-
         [
-
             '-y',
 
             '-i',
@@ -449,35 +309,21 @@ function convertToCleanWav(
             '1',
 
             '-af',
-
             [
-
                 'silenceremove=start_periods=1:start_threshold=-36dB:start_silence=0.12',
-
                 'areverse',
-
                 'silenceremove=start_periods=1:start_threshold=-38dB:start_silence=0.20',
-
                 'areverse',
-
                 'highpass=f=120',
-
                 'lowpass=f=8000',
-
                 'loudnorm=I=-22:TP=-3:LRA=9',
-
                 'acompressor=threshold=-20dB:ratio=1.8:attack=8:release=120:makeup=2.5',
-
                 'aecho=0.8:0.18:35:0.08',
-
                 `volume=${NAME_GAIN}`
-
             ].join(','),
 
             outputPath
-
         ],
-
         'FFmpeg clean vocal'
     );
 }
@@ -487,24 +333,19 @@ function mixNameWithGeneratedChord(
     nameAudio,
     outputFile,
     finalDuration
-){
-
+) {
     console.log(
-        '*** USING POLISHED PERSONALIZED MIX ENGINE WITH PREVIEW ***'
+        '*** USING POLISHED PERSONALIZED MIX ENGINE WITH PREVIEW + CLEANUP ***'
     );
 
-    const fadeStart =
-        Math.max(
-            0,
-            finalDuration - 0.7
-        );
+    const fadeStart = Math.max(
+        0,
+        finalDuration - 0.7
+    );
 
     return runCommand(
-
         FFMPEG_PATH,
-
         [
-
             '-y',
 
             '-i',
@@ -514,9 +355,7 @@ function mixNameWithGeneratedChord(
             nameAudio,
 
             '-filter_complex',
-
             [
-
                 `[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${MASTER_GAIN}[master]`,
 
                 `[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,adelay=${NAME_START_MS}|${NAME_START_MS},volume=${NAME_GAIN}[name]`,
@@ -536,7 +375,6 @@ function mixNameWithGeneratedChord(
                 '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]',
 
                 `[mixed]afade=t=out:st=${fadeStart}:d=0.7[out]`
-
             ].join(';'),
 
             '-map',
@@ -552,247 +390,170 @@ function mixNameWithGeneratedChord(
             '192k',
 
             outputFile
-
         ],
-
         'FFmpeg polished personalized mix'
     );
 }
 
 app.post(
-'/upload',
+    '/upload',
+    upload.single('audio'),
+    async (req, res) => {
+        let inputPath = null;
+        let cleanWavPath = null;
 
-upload.single('audio'),
+        try {
+            console.log('Upload route hit.');
 
-async (req, res) => {
+            if (!req.file) {
+                throw new Error('No audio file received.');
+            }
 
-    let inputPath = null;
-    let cleanWavPath = null;
+            if (!fs.existsSync(MASTER_SONG)) {
+                throw new Error(
+                    'Master song not found at: ' + MASTER_SONG
+                );
+            }
 
-    try {
+            inputPath = req.file.path;
 
-        console.log(
-            'Upload route hit.'
-        );
-
-        if (!req.file) {
-
-            throw new Error(
-                'No audio file received.'
-            );
-        }
-
-        if (
-            !fs.existsSync(MASTER_SONG)
-        ) {
-
-            throw new Error(
-                'Master song not found at: ' +
-                MASTER_SONG
-            );
-        }
-
-        inputPath =
-            req.file.path;
-
-        const baseName =
-            req.file.filename.replace(
+            const baseName = req.file.filename.replace(
                 /\.[^/.]+$/,
                 ''
             );
 
-        const cleanWavFilename =
-            baseName + '_clean.wav';
+            const cleanWavFilename =
+                baseName + '_clean.wav';
 
-        const finalFilename =
-            baseName + '_final.mp3';
+            const finalFilename =
+                baseName + '_final.mp3';
 
-        cleanWavPath =
-            path.join(
+            cleanWavPath = path.join(
                 processedFolder,
                 cleanWavFilename
             );
 
-        const finalPath =
-            path.join(
+            const finalPath = path.join(
                 finalFolder,
                 finalFilename
             );
 
-        await convertToCleanWav(
-            inputPath,
-            cleanWavPath
-        );
-
-        const nameDuration =
-            await getAudioDuration(
+            await convertToCleanWav(
+                inputPath,
                 cleanWavPath
             );
 
-        const volumeInfo =
-            await analyzeAudioVolume(
-                cleanWavPath
+            const nameDuration =
+                await getAudioDuration(cleanWavPath);
+
+            const volumeInfo =
+                await analyzeAudioVolume(cleanWavPath);
+
+            console.log(
+                'Clean name duration:',
+                nameDuration
             );
 
-        validateRecordingQuality(
-            nameDuration,
-            volumeInfo
-        );
+            console.log(
+                'Volume analysis:',
+                volumeInfo
+            );
 
-        const finalDuration =
+            validateRecordingQuality(
+                nameDuration,
+                volumeInfo
+            );
 
-            (NAME_START_MS / 1000) +
+            const finalDuration =
+                (NAME_START_MS / 1000) +
+                nameDuration +
+                END_TAIL_SECONDS;
 
-            nameDuration +
+            await mixNameWithGeneratedChord(
+                MASTER_SONG,
+                cleanWavPath,
+                finalPath,
+                finalDuration
+            );
 
-            END_TAIL_SECONDS;
+            deleteFileIfExists(inputPath);
+            deleteFileIfExists(cleanWavPath);
 
-        await mixNameWithGeneratedChord(
+            res.json({
+                success: true,
 
-            MASTER_SONG,
+                finalSong: finalFilename,
 
-            cleanWavPath,
+                downloadFilename:
+                    makeCleanDownloadName(finalFilename),
 
-            finalPath,
+                previewUrl:
+                    `/preview/${encodeURIComponent(finalFilename)}`,
 
-            finalDuration
-        );
+                finalSongUrl:
+                    `/download/${encodeURIComponent(finalFilename)}`
+            });
 
-        deleteFileIfExists(
-            inputPath
-        );
+        } catch (error) {
+            console.error('Processing failed:');
+            console.error(error.message);
 
-        deleteFileIfExists(
-            cleanWavPath
-        );
+            deleteFileIfExists(inputPath);
+            deleteFileIfExists(cleanWavPath);
 
-        res.json({
-
-            success: true,
-
-            finalSong:
-                finalFilename,
-
-            downloadFilename:
-                makeCleanDownloadName(
-                    finalFilename
-                ),
-
-            previewUrl:
-                `/preview/${encodeURIComponent(finalFilename)}`,
-
-            finalSongUrl:
-                `/download/${encodeURIComponent(finalFilename)}`
-        });
-
-    } catch(error) {
-
-        console.error(
-            'Processing failed:'
-        );
-
-        console.error(
-            error.message
-        );
-
-        deleteFileIfExists(
-            inputPath
-        );
-
-        deleteFileIfExists(
-            cleanWavPath
-        );
-
-        res.status(400).json({
-
-            success: false,
-
-            error:
-                error.message
-        });
+            res.status(400).json({
+                success: false,
+                error: error.message
+            });
+        }
     }
-});
+);
 
-app.get(
-'/preview/:filename',
+app.get('/preview/:filename', (req, res) => {
+    const safeFilename = path.basename(
+        req.params.filename
+    );
 
-(req, res) => {
+    const filePath = path.join(
+        finalFolder,
+        safeFilename
+    );
 
-    const safeFilename =
-        path.basename(
-            req.params.filename
-        );
-
-    const filePath =
-        path.join(
-            finalFolder,
-            safeFilename
-        );
-
-    if (
-        !fs.existsSync(filePath)
-    ) {
-
+    if (!fs.existsSync(filePath)) {
         return res
             .status(404)
-            .send(
-                'Preview file not found.'
-            );
+            .send('Preview file not found.');
     }
 
     res.sendFile(filePath);
 });
 
-app.get(
-'/download/:filename',
+app.get('/download/:filename', (req, res) => {
+    const safeFilename = path.basename(
+        req.params.filename
+    );
 
-(req, res) => {
-
-    const safeFilename =
-        path.basename(
-            req.params.filename
-        );
-
-    const filePath =
-        path.join(
-            finalFolder,
-            safeFilename
-        );
+    const filePath = path.join(
+        finalFolder,
+        safeFilename
+    );
 
     const downloadFilename =
-        makeCleanDownloadName(
-            safeFilename
-        );
+        makeCleanDownloadName(safeFilename);
 
-    if (
-        !fs.existsSync(filePath)
-    ) {
-
+    if (!fs.existsSync(filePath)) {
         return res
             .status(404)
-            .send(
-                'File not found or already downloaded.'
-            );
+            .send('File not found or already downloaded.');
     }
 
     res.download(
-
         filePath,
-
         downloadFilename,
-
         error => {
-
             if (error) {
-
-                console.error(
-                    'Download error:'
-                );
-
-                console.error(
-                    error.message
-                );
-
+                console.error('Download error:');
+                console.error(error.message);
                 return;
             }
 
@@ -802,22 +563,20 @@ app.get(
             );
 
             setTimeout(() => {
-
-                deleteFileIfExists(
-                    filePath
-                );
-
-            }, 30000);
+                deleteFileIfExists(filePath);
+            }, DOWNLOAD_DELETE_DELAY_MS);
         }
     );
 });
 
-const PORT =
-    process.env.PORT || 3000;
+runScheduledCleanup();
+
+setInterval(() => {
+    runScheduledCleanup();
+}, CLEANUP_INTERVAL_MINUTES * 60 * 1000);
+
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-
-    console.log(
-        `Server running on port ${PORT}`
-    );
+    console.log(`Server running on port ${PORT}`);
 });
