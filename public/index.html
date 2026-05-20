@@ -6,6 +6,7 @@
 <title>SDP Recorder Upload Test</title>
 
 <style>
+
 body{
     background:#7b3f00;
     color:white;
@@ -93,6 +94,7 @@ audio{
     color:#7b3f00;
     font-weight:bold;
 }
+
 </style>
 </head>
 
@@ -104,18 +106,35 @@ audio{
 Type the first name, then click Record. After the countdown, listen to the D major guide chord, then sing the name clearly on one steady note.
 </div>
 
-<input id="nameInput" type="text" placeholder="Recipient First Name">
+<input
+    id="nameInput"
+    type="text"
+    placeholder="Recipient First Name"
+>
 
 <br>
 
-<button id="recordBtn">Record</button>
-<button id="stopBtn" disabled>Stop</button>
-<button id="previewBtn">Preview Song</button>
-<button id="downloadReturnBtn">Download Song & Return</button>
+<button id="recordBtn">
+Record
+</button>
+
+<button id="stopBtn" disabled>
+Stop
+</button>
+
+<button id="previewBtn">
+Preview Song
+</button>
+
+<button id="downloadReturnBtn">
+Download Song & Return
+</button>
 
 <div id="countdown"></div>
 
-<div id="timer">00:00</div>
+<div id="timer">
+00:00
+</div>
 
 <div id="volumeMeterWrap">
     <div id="volumeMeter"></div>
@@ -123,7 +142,9 @@ Type the first name, then click Record. After the countdown, listen to the D maj
 
 <audio id="audioPlayback" controls></audio>
 
-<div id="status">Ready</div>
+<div id="status">
+Ready
+</div>
 
 <script>
 
@@ -170,9 +191,11 @@ const volumeMeter =
 document.getElementById('volumeMeter');
 
 let currentStream = null;
+
 let audioContext = null;
 let analyser = null;
 let sourceNode = null;
+
 let silenceCheckInterval = null;
 
 let recordingStartedAt = null;
@@ -184,19 +207,24 @@ let silenceStartedAt = null;
 let hasDetectedVoice = false;
 
 const SILENCE_THRESHOLD = 0.035;
+
 const SILENCE_STOP_DELAY_MS = 1000;
+
 const MIN_RECORDING_TIME_MS = 700;
+
 const MAX_RECORDING_TIME_MS = 7000;
 
 function formatTime(seconds){
 
-    const mins = Math.floor(seconds / 60);
+    const mins =
+        Math.floor(seconds / 60);
 
-    const secs = seconds % 60;
+    const secs =
+        seconds % 60;
 
-    return String(mins).padStart(2, '0') +
-        ':' +
-        String(secs).padStart(2, '0');
+    return String(mins).padStart(2,'0')
+        + ':'
+        + String(secs).padStart(2,'0');
 }
 
 function startTimer(){
@@ -229,28 +257,34 @@ function wait(ms){
 
 async function playGuideChord(){
 
-    const context = new AudioContext();
+    const context =
+        new AudioContext();
 
     const master =
         context.createGain();
 
-    master.gain.value = 0.7;
+    master.gain.value = 0.95;
 
     master.connect(
         context.destination
     );
 
     const notes = [
+
         146.83,
+        220.00,
         293.66,
         369.99,
-        440.00
+        440.00,
+        587.33
     ];
 
     const now =
-        context.currentTime;
+        context.currentTime + 0.05;
 
-    notes.forEach(freq => {
+    const duration = 2.4;
+
+    notes.forEach((freq, index) => {
 
         const osc =
             context.createOscillator();
@@ -262,29 +296,39 @@ async function playGuideChord(){
 
         osc.frequency.value = freq;
 
+        const start =
+            now + index * 0.025;
+
         gain.gain.setValueAtTime(
             0.0001,
-            now
+            start
         );
 
         gain.gain.exponentialRampToValueAtTime(
-            0.08,
-            now + 0.02
+            0.12,
+            start + 0.02
+        );
+
+        gain.gain.exponentialRampToValueAtTime(
+            0.055,
+            start + 0.45
         );
 
         gain.gain.exponentialRampToValueAtTime(
             0.0001,
-            now + 1.4
+            start + duration
         );
 
         osc.connect(gain);
+
         gain.connect(master);
 
-        osc.start(now);
-        osc.stop(now + 1.5);
+        osc.start(start);
+
+        osc.stop(start + duration + 0.2);
     });
 
-    await wait(1600);
+    await wait(2800);
 
     context.close();
 }
@@ -300,7 +344,8 @@ async function runCountdown(){
     countdownDiv.innerText = '1';
     await wait(1000);
 
-    countdownDiv.innerText = 'Listen...';
+    countdownDiv.innerText =
+        'Listen...';
 
     statusDiv.innerText =
         'Listen to the D major chord...';
@@ -319,10 +364,10 @@ function calculateVolume(dataArray){
 
     let sum = 0;
 
-    for (let i = 0; i < dataArray.length; i++) {
+    for(let i=0;i<dataArray.length;i++){
 
         const value =
-            (dataArray[i] - 128) / 128;
+            (dataArray[i]-128)/128;
 
         sum += value * value;
     }
@@ -334,10 +379,10 @@ function calculateVolume(dataArray){
 
 function stopRecording(reason){
 
-    if (
+    if(
         mediaRecorder &&
         mediaRecorder.state === 'recording'
-    ) {
+    ){
 
         statusDiv.innerText =
             reason || 'Stopping...';
@@ -392,15 +437,16 @@ function startSilenceDetection(stream){
         volumeMeter.style.width =
             volumePercent + '%';
 
-        const now = Date.now();
+        const now =
+            Date.now();
 
         const recordingAge =
             now - recordingStartedAt;
 
-        if (
+        if(
             recordingAge >
             MAX_RECORDING_TIME_MS
-        ) {
+        ){
 
             stopRecording(
                 'Maximum recording time reached.'
@@ -409,7 +455,7 @@ function startSilenceDetection(stream){
             return;
         }
 
-        if (volume > SILENCE_THRESHOLD) {
+        if(volume > SILENCE_THRESHOLD){
 
             hasDetectedVoice = true;
             silenceStartedAt = null;
@@ -417,38 +463,37 @@ function startSilenceDetection(stream){
             return;
         }
 
-        if (
+        if(
             !hasDetectedVoice ||
             recordingAge <
             MIN_RECORDING_TIME_MS
-        ) {
+        ){
 
             return;
         }
 
-        if (!silenceStartedAt) {
+        if(!silenceStartedAt){
 
             silenceStartedAt = now;
-
             return;
         }
 
-        if (
+        if(
             now - silenceStartedAt >=
             SILENCE_STOP_DELAY_MS
-        ) {
+        ){
 
             stopRecording(
                 'Silence detected.'
             );
         }
 
-    }, 100);
+    },100);
 }
 
 function stopSilenceDetection(){
 
-    if (silenceCheckInterval) {
+    if(silenceCheckInterval){
 
         clearInterval(
             silenceCheckInterval
@@ -457,14 +502,14 @@ function stopSilenceDetection(){
         silenceCheckInterval = null;
     }
 
-    if (sourceNode) {
+    if(sourceNode){
 
         sourceNode.disconnect();
 
         sourceNode = null;
     }
 
-    if (audioContext) {
+    if(audioContext){
 
         audioContext.close();
 
@@ -479,7 +524,7 @@ function stopSilenceDetection(){
 
 async function uploadRecording(){
 
-    if (!audioBlob) {
+    if(!audioBlob){
         return;
     }
 
@@ -500,14 +545,14 @@ async function uploadRecording(){
     statusDiv.innerText =
         'Uploading and processing...';
 
-    try {
+    try{
 
         const response =
-            await fetch('/upload', {
+            await fetch('/upload',{
 
-            method: 'POST',
+            method:'POST',
 
-            body: formData
+            body:formData
         });
 
         const result =
@@ -515,7 +560,7 @@ async function uploadRecording(){
 
         console.log(result);
 
-        if (result.success) {
+        if(result.success){
 
             latestFinalSongUrl =
                 result.finalSongUrl;
@@ -532,14 +577,14 @@ async function uploadRecording(){
             downloadReturnBtn.style.display =
                 'inline-block';
 
-        } else {
+        }else{
 
             statusDiv.innerText =
-                'Processing failed: ' +
-                result.error;
+                'Processing failed: '
+                + result.error;
         }
 
-    } catch(err) {
+    }catch(err){
 
         console.error(err);
 
@@ -551,9 +596,9 @@ async function uploadRecording(){
 recordBtn.addEventListener(
 'click',
 
-async () => {
+async ()=>{
 
-    try {
+    try{
 
         recordBtn.disabled = true;
 
@@ -585,7 +630,7 @@ async () => {
 
         currentStream =
             await navigator.mediaDevices.getUserMedia({
-                audio: true
+                audio:true
             });
 
         await runCountdown();
@@ -594,28 +639,35 @@ async () => {
             new MediaRecorder(currentStream);
 
         mediaRecorder.ondataavailable =
-            event => {
+        event=>{
 
-            if (event.data.size > 0) {
+            if(event.data.size > 0){
 
-                audioChunks.push(event.data);
+                audioChunks.push(
+                    event.data
+                );
             }
         };
 
         mediaRecorder.onstop =
-        async () => {
+        async ()=>{
 
             stopTimer();
 
             stopSilenceDetection();
 
             audioBlob =
-                new Blob(audioChunks, {
-                    type: 'audio/webm'
-                });
+                new Blob(
+                    audioChunks,
+                    {
+                        type:'audio/webm'
+                    }
+                );
 
             const audioUrl =
-                URL.createObjectURL(audioBlob);
+                URL.createObjectURL(
+                    audioBlob
+                );
 
             audioPlayback.src =
                 audioUrl;
@@ -626,7 +678,7 @@ async () => {
             statusDiv.innerText =
                 'Uploading recording...';
 
-            if (currentStream) {
+            if(currentStream){
 
                 currentStream
                     .getTracks()
@@ -656,7 +708,7 @@ async () => {
         statusDiv.innerText =
             '● Recording...';
 
-    } catch(err) {
+    }catch(err){
 
         console.error(err);
 
@@ -672,21 +724,23 @@ async () => {
 stopBtn.addEventListener(
 'click',
 
-() => {
+()=>{
 
-    stopRecording('Stopping...');
+    stopRecording(
+        'Stopping...'
+    );
 });
 
 previewBtn.addEventListener(
 'click',
 
-async () => {
+async ()=>{
 
-    if (!latestPreviewUrl) {
+    if(!latestPreviewUrl){
         return;
     }
 
-    try {
+    try{
 
         audioPlayback.src =
             latestPreviewUrl;
@@ -704,7 +758,7 @@ async () => {
         statusDiv.innerText =
             'Previewing final song...';
 
-    } catch(err) {
+    }catch(err){
 
         console.error(err);
 
@@ -722,9 +776,9 @@ async () => {
 downloadReturnBtn.addEventListener(
 'click',
 
-async () => {
+async ()=>{
 
-    if (!latestFinalSongUrl) {
+    if(!latestFinalSongUrl){
         return;
     }
 
@@ -743,12 +797,12 @@ async () => {
 
     document.body.removeChild(link);
 
-    setTimeout(() => {
+    setTimeout(()=>{
 
         window.location.href =
             RETURN_URL;
 
-    }, 1800);
+    },1800);
 });
 
 </script>
