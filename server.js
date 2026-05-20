@@ -25,6 +25,7 @@ const masterFolder = path.join(__dirname, 'master');
 const processedFolder = path.join(__dirname, 'processed');
 
 const MASTER_SONG = path.join(masterFolder, 'master_song.wav');
+const PREVIEW_TAG = path.join(masterFolder, 'preview_tag.wav');
 
 const NAME_START_MS = 18000;
 const CHORD_START_MS = 16250;
@@ -43,6 +44,8 @@ const CLIPPED_DB = -0.5;
 const TEMP_FILE_MAX_AGE_MINUTES = 10;
 const CLEANUP_INTERVAL_MINUTES = 10;
 const DOWNLOAD_DELETE_DELAY_MS = 30000;
+
+const usedPreviewFiles = new Set();
 
 [
     uploadFolder,
@@ -100,8 +103,6 @@ function cleanupOldFiles(folder, maxAgeMinutes) {
 
     fs.readdir(folder, (readError, files) => {
         if (readError) {
-            console.error('Cleanup read failed:', folder);
-            console.error(readError.message);
             return;
         }
 
@@ -109,11 +110,7 @@ function cleanupOldFiles(folder, maxAgeMinutes) {
             const filePath = path.join(folder, file);
 
             fs.stat(filePath, (statError, stats) => {
-                if (statError) {
-                    return;
-                }
-
-                if (!stats.isFile()) {
+                if (statError || !stats.isFile()) {
                     return;
                 }
 
@@ -121,10 +118,7 @@ function cleanupOldFiles(folder, maxAgeMinutes) {
 
                 if (ageMs > maxAgeMs) {
                     fs.unlink(filePath, unlinkError => {
-                        if (unlinkError) {
-                            console.error('Old temp cleanup failed:', filePath);
-                            console.error(unlinkError.message);
-                        } else {
+                        if (!unlinkError) {
                             console.log('Cleaned old temp file:', filePath);
                         }
                     });
@@ -143,6 +137,7 @@ function runScheduledCleanup() {
 function makeCleanDownloadName(internalFilename) {
     let cleanName = internalFilename
         .replace(/^\d+_/, '')
+        .replace(/_preview\.mp3$/i, '')
         .replace(/_final\.mp3$/i, '')
         .replace(/\.[^/.]+$/, '')
         .replace(/_recording$/i, '')
@@ -198,13 +193,10 @@ function getAudioDuration(filePath) {
             [
                 '-v',
                 'error',
-
                 '-show_entries',
                 'format=duration',
-
                 '-of',
                 'default=noprint_wrappers=1:nokey=1',
-
                 filePath
             ],
             (error, stdout) => {
@@ -228,13 +220,10 @@ function analyzeAudioVolume(filePath) {
             [
                 '-i',
                 filePath,
-
                 '-af',
                 'volumedetect',
-
                 '-f',
                 'null',
-
                 NULL_OUTPUT
             ],
             (error, stdout, stderr) => {
@@ -298,16 +287,12 @@ function convertToCleanWav(inputPath, outputPath) {
         FFMPEG_PATH,
         [
             '-y',
-
             '-i',
             inputPath,
-
             '-ar',
             '48000',
-
             '-ac',
             '1',
-
             '-af',
             [
                 'silenceremove=start_periods=1:start_threshold=-36dB:start_silence=0.12',
@@ -321,7 +306,6 @@ function convertToCleanWav(inputPath, outputPath) {
                 'aecho=0.8:0.18:35:0.08',
                 `volume=${NAME_GAIN}`
             ].join(','),
-
             outputPath
         ],
         'FFmpeg clean vocal'
@@ -335,7 +319,7 @@ function mixNameWithGeneratedChord(
     finalDuration
 ) {
     console.log(
-        '*** USING POLISHED PERSONALIZED MIX ENGINE WITH PREVIEW + CLEANUP ***'
+        '*** USING CLEAN FINAL MIX ENGINE ***'
     );
 
     const fadeStart = Math.max(
@@ -347,51 +331,94 @@ function mixNameWithGeneratedChord(
         FFMPEG_PATH,
         [
             '-y',
-
             '-i',
             masterSong,
-
             '-i',
             nameAudio,
-
             '-filter_complex',
             [
                 `[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${MASTER_GAIN}[master]`,
-
                 `[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,adelay=${NAME_START_MS}|${NAME_START_MS},volume=${NAME_GAIN}[name]`,
 
                 `sine=frequency=146.83:duration=${CHORD_DURATION_SECONDS}:sample_rate=48000[d_low]`,
-
                 `sine=frequency=293.66:duration=${CHORD_DURATION_SECONDS}:sample_rate=48000[d]`,
-
                 `sine=frequency=369.99:duration=${CHORD_DURATION_SECONDS}:sample_rate=48000[fs]`,
-
                 `sine=frequency=440.00:duration=${CHORD_DURATION_SECONDS}:sample_rate=48000[a]`,
 
                 `[d_low][d][fs][a]amix=inputs=4:duration=longest:normalize=0,volume=${CHORD_GAIN},afade=t=in:st=0:d=0.15,afade=t=out:st=5.3:d=2.7[chordraw]`,
-
                 `[chordraw]adelay=${CHORD_START_MS}|${CHORD_START_MS}[chord]`,
 
                 '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]',
-
                 `[mixed]afade=t=out:st=${fadeStart}:d=0.7[out]`
             ].join(';'),
-
             '-map',
             '[out]',
-
             '-t',
             finalDuration.toString(),
-
             '-acodec',
             'libmp3lame',
-
             '-b:a',
             '192k',
-
             outputFile
         ],
-        'FFmpeg polished personalized mix'
+        'FFmpeg clean final mix'
+    );
+}
+
+function createPreviewWithTag(
+    cleanFinalPath,
+    previewOutputPath
+) {
+    if (!fs.existsSync(PREVIEW_TAG)) {
+        console.warn(
+            'Preview tag file missing. Creating preview without voice tag:',
+            PREVIEW_TAG
+        );
+
+        return runCommand(
+            FFMPEG_PATH,
+            [
+                '-y',
+                '-i',
+                cleanFinalPath,
+                '-filter_complex',
+                '[0:a]volume=0.92[out]',
+                '-map',
+                '[out]',
+                '-acodec',
+                'libmp3lame',
+                '-b:a',
+                '192k',
+                previewOutputPath
+            ],
+            'FFmpeg preview copy without tag'
+        );
+    }
+
+    return runCommand(
+        FFMPEG_PATH,
+        [
+            '-y',
+            '-i',
+            cleanFinalPath,
+            '-i',
+            PREVIEW_TAG,
+            '-filter_complex',
+            [
+                '[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.92[main]',
+                '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.38,adelay=2500|2500[tag1]',
+                '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.28,adelay=9000|9000[tag2]',
+                '[main][tag1][tag2]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[out]'
+            ].join(';'),
+            '-map',
+            '[out]',
+            '-acodec',
+            'libmp3lame',
+            '-b:a',
+            '192k',
+            previewOutputPath
+        ],
+        'FFmpeg watermarked preview'
     );
 }
 
@@ -401,6 +428,8 @@ app.post(
     async (req, res) => {
         let inputPath = null;
         let cleanWavPath = null;
+        let finalPath = null;
+        let previewPath = null;
 
         try {
             console.log('Upload route hit.');
@@ -428,14 +457,22 @@ app.post(
             const finalFilename =
                 baseName + '_final.mp3';
 
+            const previewFilename =
+                baseName + '_preview.mp3';
+
             cleanWavPath = path.join(
                 processedFolder,
                 cleanWavFilename
             );
 
-            const finalPath = path.join(
+            finalPath = path.join(
                 finalFolder,
                 finalFilename
+            );
+
+            previewPath = path.join(
+                finalFolder,
+                previewFilename
             );
 
             await convertToCleanWav(
@@ -476,6 +513,11 @@ app.post(
                 finalDuration
             );
 
+            await createPreviewWithTag(
+                finalPath,
+                previewPath
+            );
+
             deleteFileIfExists(inputPath);
             deleteFileIfExists(cleanWavPath);
 
@@ -484,11 +526,13 @@ app.post(
 
                 finalSong: finalFilename,
 
+                previewSong: previewFilename,
+
                 downloadFilename:
                     makeCleanDownloadName(finalFilename),
 
                 previewUrl:
-                    `/preview/${encodeURIComponent(finalFilename)}`,
+                    `/preview/${encodeURIComponent(previewFilename)}`,
 
                 finalSongUrl:
                     `/download/${encodeURIComponent(finalFilename)}`
@@ -500,6 +544,8 @@ app.post(
 
             deleteFileIfExists(inputPath);
             deleteFileIfExists(cleanWavPath);
+            deleteFileIfExists(finalPath);
+            deleteFileIfExists(previewPath);
 
             res.status(400).json({
                 success: false,
@@ -524,6 +570,14 @@ app.get('/preview/:filename', (req, res) => {
             .status(404)
             .send('Preview file not found.');
     }
+
+    if (usedPreviewFiles.has(safeFilename)) {
+        return res
+            .status(410)
+            .send('Preview already played.');
+    }
+
+    usedPreviewFiles.add(safeFilename);
 
     res.sendFile(filePath);
 });
