@@ -220,7 +220,7 @@ function convertToCleanWav(inputPath, outputPath) {
 }
 
 function mixNameWithGeneratedChord(masterSong, nameAudio, outputFile, finalDuration) {
-    console.log('*** USING POLISHED PERSONALIZED MIX ENGINE WITH QUALITY CHECK ***');
+    console.log('*** USING POLISHED PERSONALIZED MIX ENGINE WITH PREVIEW ***');
 
     const fadeStart = Math.max(0, finalDuration - 0.7);
 
@@ -319,6 +319,7 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
             success: true,
             finalSong: finalFilename,
             downloadFilename: makeCleanDownloadName(finalFilename),
+            previewUrl: `/preview/${encodeURIComponent(finalFilename)}`,
             finalSongUrl: `/download/${encodeURIComponent(finalFilename)}`
         });
 
@@ -334,6 +335,19 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
             error: error.message
         });
     }
+});
+
+app.get('/preview/:filename', (req, res) => {
+    const safeFilename = path.basename(req.params.filename);
+    const filePath = path.join(finalFolder, safeFilename);
+
+    if (!fs.existsSync(filePath)) {
+        return res
+            .status(404)
+            .send('Preview file not found.');
+    }
+
+    res.sendFile(filePath);
 });
 
 app.get('/download/:filename', (req, res) => {

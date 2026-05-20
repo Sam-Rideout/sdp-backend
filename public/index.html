@@ -86,6 +86,7 @@ audio{
     line-height:1.4;
 }
 
+#previewBtn,
 #downloadReturnBtn{
     display:none;
     background:white;
@@ -109,6 +110,7 @@ audio{
 
 <button id="recordBtn">Record</button>
 <button id="stopBtn" disabled>Stop</button>
+<button id="previewBtn">Preview Song</button>
 <button id="downloadReturnBtn">Download Song & Return</button>
 
 <div id="countdown"></div>
@@ -150,9 +152,11 @@ const RETURN_URL = 'https://brightlight506.wixstudio.com/sdp-songs/collect-name'
 
 let recordingStartedAt = null;
 let latestFinalSongUrl = null;
+let latestPreviewUrl = null;
 
 const recordBtn = document.getElementById('recordBtn');
 const stopBtn = document.getElementById('stopBtn');
+const previewBtn = document.getElementById('previewBtn');
 const downloadReturnBtn = document.getElementById('downloadReturnBtn');
 const audioPlayback = document.getElementById('audioPlayback');
 const statusDiv = document.getElementById('status');
@@ -286,12 +290,12 @@ async function playGuideChord(){
     const duration = GUIDE_CHORD_DURATION_MS / 1000;
 
     const notes = [
-        { frequency: 146.83, delay: 0.00, level: 0.16 }, // D3
-        { frequency: 220.00, delay: 0.025, level: 0.11 }, // A3
-        { frequency: 293.66, delay: 0.045, level: 0.14 }, // D4
-        { frequency: 369.99, delay: 0.065, level: 0.11 }, // F#4
-        { frequency: 440.00, delay: 0.085, level: 0.10 }, // A4
-        { frequency: 587.33, delay: 0.110, level: 0.08 }  // D5
+        { frequency: 146.83, delay: 0.00, level: 0.16 },
+        { frequency: 220.00, delay: 0.025, level: 0.11 },
+        { frequency: 293.66, delay: 0.045, level: 0.14 },
+        { frequency: 369.99, delay: 0.065, level: 0.11 },
+        { frequency: 440.00, delay: 0.085, level: 0.10 },
+        { frequency: 587.33, delay: 0.110, level: 0.08 }
     ];
 
     notes.forEach(note => {
@@ -306,7 +310,6 @@ async function playGuideChord(){
     });
 
     await wait(GUIDE_CHORD_DURATION_MS);
-
     chordContext.close();
 }
 
@@ -358,7 +361,6 @@ function startSilenceDetection(stream){
     sourceNode = audioContext.createMediaStreamSource(stream);
 
     analyser.fftSize = 2048;
-
     sourceNode.connect(analyser);
 
     const dataArray = new Uint8Array(analyser.fftSize);
@@ -432,7 +434,6 @@ async function uploadRecording(){
     }
 
     const formData = new FormData();
-
     const name = document.getElementById('nameInput').value || 'recording';
 
     formData.append(
@@ -455,9 +456,11 @@ async function uploadRecording(){
 
         if (result.success) {
             latestFinalSongUrl = result.finalSongUrl || `/final/${result.finalSong}`;
+            latestPreviewUrl = result.previewUrl || latestFinalSongUrl;
 
-            statusDiv.innerText = 'Song complete! Click below to download and return.';
+            statusDiv.innerText = 'Song complete! Preview it, then download when ready.';
 
+            previewBtn.style.display = 'inline-block';
             downloadReturnBtn.style.display = 'inline-block';
 
         } else {
@@ -474,12 +477,14 @@ recordBtn.addEventListener('click', async () => {
     try {
         recordBtn.disabled = true;
         stopBtn.disabled = true;
+        previewBtn.style.display = 'none';
         downloadReturnBtn.style.display = 'none';
 
         audioChunks = [];
         audioBlob = null;
         recordingStartedAt = null;
         latestFinalSongUrl = null;
+        latestPreviewUrl = null;
 
         audioPlayback.removeAttribute('src');
         audioPlayback.load();
@@ -555,8 +560,19 @@ stopBtn.addEventListener('click', () => {
     stopRecording('Stopping...');
 });
 
-downloadReturnBtn.addEventListener('click', async () => {
+previewBtn.addEventListener('click', () => {
+    if (!latestPreviewUrl) {
+        return;
+    }
 
+    audioPlayback.src = latestPreviewUrl;
+    audioPlayback.style.display = 'inline-block';
+    audioPlayback.play();
+
+    statusDiv.innerText = 'Previewing final song...';
+});
+
+downloadReturnBtn.addEventListener('click', async () => {
     if (!latestFinalSongUrl) {
         return;
     }
@@ -567,9 +583,7 @@ downloadReturnBtn.addEventListener('click', async () => {
     link.download = 'SDP-Song.mp3';
 
     document.body.appendChild(link);
-
     link.click();
-
     document.body.removeChild(link);
 
     setTimeout(() => {
