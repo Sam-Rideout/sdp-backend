@@ -275,7 +275,7 @@ async function playGuideChord(){
     const now =
         context.currentTime + 0.05;
 
-    const duration = 2.0;
+    const duration = 1.65;
 
     const notes = [
 
@@ -316,13 +316,13 @@ async function playGuideChord(){
         );
 
         gain.gain.exponentialRampToValueAtTime(
-            note.level * 0.55,
-            start + 0.40
+            note.level * 0.45,
+            start + 0.28
         );
 
         gain.gain.exponentialRampToValueAtTime(
             0.0001,
-            start + duration
+            start + 1.75
         );
 
         osc.connect(gain);
@@ -331,10 +331,10 @@ async function playGuideChord(){
 
         osc.start(start);
 
-        osc.stop(start + duration + 0.2);
+        osc.stop(start + 1.85);
     });
 
-    await wait(2800);
+    await wait(2100);
 
     context.close();
 }
