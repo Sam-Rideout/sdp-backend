@@ -86,6 +86,12 @@ audio{
     line-height:1.4;
 }
 
+#cancelBtn{
+    background:#d7c3a7;
+    color:#5a2d00;
+    font-weight:bold;
+}
+
 #previewBtn,
 #downloadReturnBtn{
     display:none;
@@ -101,7 +107,7 @@ audio{
 <h1>Record The Name Here</h1>
 
 <div class="note">
-Type the first name, then click Record. After the countdown, listen to the D major guide chord, then sing the name clearly on one steady note.
+Type the first name, then click Record. After the countdown, listen to the D major guide chord, then sing the name clearly right after the music.
 </div>
 
 <input id="nameInput" type="text" placeholder="Recipient First Name">
@@ -110,6 +116,7 @@ Type the first name, then click Record. After the countdown, listen to the D maj
 
 <button id="recordBtn">Record</button>
 <button id="stopBtn" disabled>Stop</button>
+<button id="cancelBtn">Cancel & Return</button>
 <button id="previewBtn">Preview Song</button>
 <button id="downloadReturnBtn">Download Song & Return</button>
 
@@ -156,6 +163,7 @@ let latestPreviewUrl = null;
 
 const recordBtn = document.getElementById('recordBtn');
 const stopBtn = document.getElementById('stopBtn');
+const cancelBtn = document.getElementById('cancelBtn');
 const previewBtn = document.getElementById('previewBtn');
 const downloadReturnBtn = document.getElementById('downloadReturnBtn');
 const audioPlayback = document.getElementById('audioPlayback');
@@ -565,6 +573,26 @@ recordBtn.addEventListener('click', async () => {
 
 stopBtn.addEventListener('click', () => {
     stopRecording('Stopping...');
+});
+
+cancelBtn.addEventListener('click', () => {
+    try {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+        }
+    } catch(err) {
+        console.error(err);
+    }
+
+    stopTimer();
+    stopSilenceDetection();
+
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+    }
+
+    window.location.href = RETURN_URL;
 });
 
 previewBtn.addEventListener('click', async () => {
