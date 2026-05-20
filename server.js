@@ -28,7 +28,7 @@ const NAME_START_MS = 18000;
 const CHORD_START_MS = 16250;
 const CHORD_DURATION_SECONDS = 8;
 
-const NAME_GAIN = 1.3;
+const NAME_GAIN = 1.0;
 const CHORD_GAIN = 0.07;
 const MASTER_GAIN = 1.0;
 const END_TAIL_SECONDS = 1.5;
@@ -60,8 +60,11 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 function deleteFileIfExists(filePath) {
+
     if (filePath && fs.existsSync(filePath)) {
+
         fs.unlink(filePath, error => {
+
             if (error) {
                 console.error('File cleanup failed:', filePath);
                 console.error(error.message);
@@ -109,10 +112,14 @@ function runCommand(command, args, label) {
             }
 
             if (error) {
+
                 console.error(`${label} failed:`);
                 console.error(error);
 
-                reject(new Error(`${label} failed: ${error.message}`));
+                reject(
+                    new Error(`${label} failed: ${error.message}`)
+                );
+
                 return;
             }
 
@@ -160,12 +167,19 @@ function convertToCleanWav(inputPath, outputPath) {
         '-af',
 
         [
-            'silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.10',
+
+            'silenceremove=start_periods=1:start_threshold=-38dB:start_silence=0.25',
+
             'areverse',
-            'silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.10',
+
+            'silenceremove=start_periods=1:start_threshold=-38dB:start_silence=0.20',
+
             'areverse',
+
             'highpass=f=120',
+
             'lowpass=f=8000',
+
             'loudnorm=I=-22:TP=-3:LRA=9',
 
             'acompressor=threshold=-20dB:ratio=1.8:attack=8:release=120:makeup=2.5',
@@ -251,15 +265,21 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         }
 
         if (!fs.existsSync(MASTER_SONG)) {
-            throw new Error('Master song not found at: ' + MASTER_SONG);
+            throw new Error(
+                'Master song not found at: ' + MASTER_SONG
+            );
         }
 
         inputPath = req.file.path;
 
-        const baseName = req.file.filename.replace(/\.[^/.]+$/, '');
+        const baseName =
+            req.file.filename.replace(/\.[^/.]+$/, '');
 
-        const cleanWavFilename = baseName + '_clean.wav';
-        const finalFilename = baseName + '_final.mp3';
+        const cleanWavFilename =
+            baseName + '_clean.wav';
+
+        const finalFilename =
+            baseName + '_final.mp3';
 
         cleanWavPath = path.join(
             processedFolder,
@@ -276,18 +296,27 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
             cleanWavPath
         );
 
-        console.log('Name vocal cleaned and converted to WAV');
+        console.log(
+            'Name vocal cleaned and converted to WAV'
+        );
 
-        const nameDuration = await getAudioDuration(cleanWavPath);
+        const nameDuration =
+            await getAudioDuration(cleanWavPath);
 
-        console.log('Clean name duration:', nameDuration);
+        console.log(
+            'Clean name duration:',
+            nameDuration
+        );
 
         const finalDuration =
             (NAME_START_MS / 1000) +
             nameDuration +
             END_TAIL_SECONDS;
 
-        console.log('Final output duration:', finalDuration);
+        console.log(
+            'Final output duration:',
+            finalDuration
+        );
 
         await mixNameWithGeneratedChord(
             MASTER_SONG,
@@ -302,10 +331,16 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
         deleteFileIfExists(cleanWavPath);
 
         res.json({
+
             success: true,
+
             finalSong: finalFilename,
-            downloadFilename: makeCleanDownloadName(finalFilename),
-            finalSongUrl: `/download/${encodeURIComponent(finalFilename)}`
+
+            downloadFilename:
+                makeCleanDownloadName(finalFilename),
+
+            finalSongUrl:
+                `/download/${encodeURIComponent(finalFilename)}`
         });
 
     } catch (error) {
@@ -325,7 +360,8 @@ app.post('/upload', upload.single('audio'), async (req, res) => {
 
 app.get('/download/:filename', (req, res) => {
 
-    const safeFilename = path.basename(req.params.filename);
+    const safeFilename =
+        path.basename(req.params.filename);
 
     const filePath = path.join(
         finalFolder,
@@ -339,16 +375,20 @@ app.get('/download/:filename', (req, res) => {
 
         return res
             .status(404)
-            .send('File not found or already downloaded.');
+            .send(
+                'File not found or already downloaded.'
+            );
     }
 
     res.download(
+
         filePath,
         downloadFilename,
 
         error => {
 
             if (error) {
+
                 console.error('Download error:');
                 console.error(error.message);
             }
@@ -361,5 +401,8 @@ app.get('/download/:filename', (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+
+    console.log(
+        `Server running on port ${PORT}`
+    );
 });
