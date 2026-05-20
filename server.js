@@ -424,9 +424,9 @@ function createPreviewWithTag(
 
                 '[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.92[main]',
 
-                '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.75,adelay=2500|2500[tag1]',
+                '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.9,adelay=2500|2500[tag1]',
 
-                '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.55,adelay=9000|9000[tag2]',
+                '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.66,adelay=9000|9000[tag2]',
 
                 '[main][tag1][tag2]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[out]'
 
