@@ -28,7 +28,7 @@ const NAME_START_MS = 18000;
 const CHORD_START_MS = 16250;
 const CHORD_DURATION_SECONDS = 8;
 
-const NAME_GAIN = 1.0;
+const NAME_GAIN = 1.3;
 const CHORD_GAIN = 0.07;
 const MASTER_GAIN = 1.0;
 const END_TAIL_SECONDS = 1.5;
