@@ -474,6 +474,34 @@ function createPreviewWithTag(
         'FFmpeg watermarked preview'
     );
 }
+
+
+
+app.post('/render-from-wix', async (req, res) => {
+
+    try {
+
+        console.log('Wix render payload:', req.body);
+
+        res.json({
+            success: true,
+            message: 'Wix route connected.'
+        });
+
+    } catch (err) {
+
+        console.error(err);
+
+        res.status(500).json({
+            success: false,
+            error: err.message
+        });
+    }
+});
+
+
+
+
 app.post(
     '/upload',
     upload.single('audio'),
