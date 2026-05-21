@@ -23,10 +23,8 @@ const uploadFolder = path.join(__dirname, 'uploads');
 const finalFolder = path.join(__dirname, 'final');
 const masterFolder = path.join(__dirname, 'master');
 const processedFolder = path.join(__dirname, 'processed');
-
 const chordFolder = path.join(__dirname, 'chords');
 
-const MASTER_SONG = path.join(masterFolder, 'master_song.wav');
 const PREVIEW_TAG = path.join(masterFolder, 'preview_tag.wav');
 
 const NAME_START_MS = 57732;
@@ -53,7 +51,8 @@ const usedPreviewFiles = new Set();
     uploadFolder,
     finalFolder,
     masterFolder,
-    processedFolder
+    processedFolder,
+    chordFolder
 ].forEach(folder => {
     if (!fs.existsSync(folder)) {
         fs.mkdirSync(folder);
@@ -61,7 +60,6 @@ const usedPreviewFiles = new Set();
 });
 
 app.use(cors());
-
 app.use(express.json({ limit: '25mb' }));
 
 app.use(
@@ -213,8 +211,6 @@ function downloadFile(url, outputPath) {
     });
 }
 
-
-
 function getAudioDuration(filePath) {
     return new Promise((resolve, reject) => {
         execFile(
@@ -311,7 +307,7 @@ function validateRecordingQuality(duration, volumeInfo) {
     }
 }
 
-function convertToCleanWav(inputPath, outputPath) {
+function convertToCleanWav(inputPath, outputPath, nameGain) {
     return runCommand(
         FFMPEG_PATH,
         [
@@ -333,7 +329,7 @@ function convertToCleanWav(inputPath, outputPath) {
                 'loudnorm=I=-22:TP=-3:LRA=9',
                 'acompressor=threshold=-20dB:ratio=1.8:attack=8:release=120:makeup=2.5',
                 'aecho=0.8:0.18:35:0.08',
-                `volume=${NAME_GAIN}`
+                `volume=${nameGain}`
             ].join(','),
             outputPath
         ],
@@ -346,11 +342,16 @@ function mixNameWithChordFile(
     nameAudio,
     chordFile,
     outputFile,
-    finalDuration
+    finalDuration,
+    settings
 ) {
-    console.log(
-        '*** USING CLEAN FINAL MIX ENGINE ***'
-    );
+    console.log('*** USING TEMPLATE FINAL MIX ENGINE ***');
+
+    const nameStartMs = settings.nameStartMs;
+    const chordStartMs = settings.chordStartMs;
+    const nameGain = settings.nameGain;
+    const chordGain = settings.chordGain;
+    const masterGain = settings.masterGain;
 
     const fadeStart = Math.max(
         0,
@@ -361,34 +362,44 @@ function mixNameWithChordFile(
         FFMPEG_PATH,
         [
             '-y',
+
             '-i',
             masterSong,
+
             '-i',
             nameAudio,
+
             '-i',
             chordFile,
-            
+
             '-filter_complex',
             [
-                `[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${MASTER_GAIN}[master]`,
-                `[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,adelay=${NAME_START_MS}|${NAME_START_MS},volume=${NAME_GAIN}[name]`,
+                `[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${masterGain}[master]`,
 
-                `[2:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${CHORD_GAIN},afade=t=in:st=0:d=0.15,afade=t=out:st=5.3:d=2.7,adelay=${CHORD_START_MS}|${CHORD_START_MS}[chord]`,    
+                `[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,adelay=${nameStartMs}|${nameStartMs},volume=${nameGain}[name]`,
+
+                `[2:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${chordGain},afade=t=in:st=0:d=0.15,afade=t=out:st=5.3:d=2.7,adelay=${chordStartMs}|${chordStartMs}[chord]`,
 
                 '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]',
+
                 `[mixed]afade=t=out:st=${fadeStart}:d=0.7[out]`
             ].join(';'),
+
             '-map',
             '[out]',
+
             '-t',
             finalDuration.toString(),
+
             '-acodec',
             'libmp3lame',
+
             '-b:a',
             '192k',
+
             outputFile
         ],
-        'FFmpeg clean final mix'
+        'FFmpeg template final mix'
     );
 }
 
@@ -396,9 +407,7 @@ function createPreviewWithTag(
     cleanFinalPath,
     previewOutputPath
 ) {
-
-    if(!fs.existsSync(PREVIEW_TAG)){
-
+    if (!fs.existsSync(PREVIEW_TAG)) {
         console.warn(
             'Preview tag file missing. Creating preview without voice tag:',
             PREVIEW_TAG
@@ -433,9 +442,7 @@ function createPreviewWithTag(
     }
 
     return runCommand(
-
         FFMPEG_PATH,
-
         [
             '-y',
 
@@ -448,7 +455,6 @@ function createPreviewWithTag(
             '-filter_complex',
 
             [
-
                 '[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.92[main]',
 
                 '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.9,adelay=2500|2500[tag1]',
@@ -456,7 +462,6 @@ function createPreviewWithTag(
                 '[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=0.66,adelay=9000|9000[tag2]',
 
                 '[main][tag1][tag2]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[out]'
-
             ].join(';'),
 
             '-map',
@@ -475,44 +480,36 @@ function createPreviewWithTag(
     );
 }
 
-
-
 app.post('/render-from-wix', async (req, res) => {
-
     try {
-
         console.log('Wix render payload:', req.body);
+
+        const payload = req.body;
+
+        const inputPath = path.join(
+            uploadFolder,
+            `wix_${Date.now()}.wav`
+        );
+
+        await downloadFile(
+            payload.nameAudioUrl,
+            inputPath
+        );
 
         res.json({
             success: true,
-            message: 'Wix route connected.'
+            message: 'Audio downloaded successfully.'
         });
 
     } catch (err) {
-
         console.error(err);
 
-const payload = req.body;
-
-const inputPath = path.join(
-    uploadFolder,
-    `wix_${Date.now()}.wav`
-);
-
-await downloadFile(
-    payload.nameAudioUrl,
-    inputPath
-);
-
-res.json({
-    success: true,
-    message: 'Audio downloaded successfully.'
-});
+        res.status(500).json({
+            success: false,
+            error: err.message
+        });
     }
 });
-
-
-
 
 app.post(
     '/upload',
@@ -525,14 +522,62 @@ app.post(
 
         try {
             console.log('Upload route hit.');
+            console.log('REQ BODY:', req.body);
 
             if (!req.file) {
                 throw new Error('No audio file received.');
             }
 
-            if (!fs.existsSync(MASTER_SONG)) {
+            const selectedMasterSong = path.join(
+                masterFolder,
+                req.body.masterSong || 'master_song.wav'
+            );
+
+            const selectedChordFile = path.join(
+                chordFolder,
+                req.body.nameChord || 'D_major.wav'
+            );
+
+            const nameStartMs = req.body.insertionPoint
+                ? Math.round(parseFloat(req.body.insertionPoint) * 1000)
+                : NAME_START_MS;
+
+            const chordStartMs = Math.max(
+                0,
+                nameStartMs - 1352
+            );
+
+            const nameGain = req.body.nameGain
+                ? parseFloat(req.body.nameGain)
+                : NAME_GAIN;
+
+            const chordGain = req.body.chordGain
+                ? parseFloat(req.body.chordGain)
+                : CHORD_GAIN;
+
+            const masterGain = req.body.masterGain
+                ? parseFloat(req.body.masterGain)
+                : MASTER_GAIN;
+
+            console.log('Selected master from request:', req.body.masterSong);
+            console.log('Selected chord from request:', req.body.nameChord);
+            console.log('Selected master full path:', selectedMasterSong);
+            console.log('Selected chord full path:', selectedChordFile);
+            console.log('Name start ms:', nameStartMs);
+            console.log('Chord start ms:', chordStartMs);
+            console.log('Name gain:', nameGain);
+            console.log('Chord gain:', chordGain);
+            console.log('Master gain:', masterGain);
+
+            if (!fs.existsSync(selectedMasterSong)) {
                 throw new Error(
-                    'Master song not found at: ' + MASTER_SONG
+                    'Selected master song not found at: ' + selectedMasterSong
+                );
+            }
+
+            if (!fs.existsSync(selectedChordFile)) {
+                throw new Error(
+                    'Selected chord file not found at: ' + selectedChordFile
                 );
             }
 
@@ -569,7 +614,8 @@ app.post(
 
             await convertToCleanWav(
                 inputPath,
-                cleanWavPath
+                cleanWavPath,
+                nameGain
             );
 
             const nameDuration =
@@ -594,35 +640,24 @@ app.post(
             );
 
             const finalDuration =
-                (NAME_START_MS / 1000) +
+                (nameStartMs / 1000) +
                 nameDuration +
                 END_TAIL_SECONDS;
 
-
-            console.log('Selected chord from Wix:', req.body.nameChord);
-
-            
-            const selectedMasterSong = path.join(
-    masterFolder,
-    req.body.masterSong || 'master_song.wav'
-);
-
-const selectedChordFile = path.join(
-    chordFolder,
-    req.body.nameChord || 'D_major.wav'
-);
-
-console.log('REQ BODY:', req.body);
-console.log('Selected master from Wix:', req.body.masterSong);
-console.log('Selected chord from Wix:', req.body.nameChord);
-
-await mixNameWithChordFile(
-    selectedMasterSong,
-    cleanWavPath,
-    selectedChordFile,
-    finalPath,
-    finalDuration
-);
+            await mixNameWithChordFile(
+                selectedMasterSong,
+                cleanWavPath,
+                selectedChordFile,
+                finalPath,
+                finalDuration,
+                {
+                    nameStartMs,
+                    chordStartMs,
+                    nameGain,
+                    chordGain,
+                    masterGain
+                }
+            );
 
             await createPreviewWithTag(
                 finalPath,
