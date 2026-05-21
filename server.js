@@ -612,6 +612,7 @@ const selectedChordFile = path.join(
     req.body.nameChord || 'D_major.wav'
 );
 
+console.log('REQ BODY:', req.body);
 console.log('Selected master from Wix:', req.body.masterSong);
 console.log('Selected chord from Wix:', req.body.nameChord);
 
