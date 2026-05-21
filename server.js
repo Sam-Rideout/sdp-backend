@@ -602,13 +602,26 @@ app.post(
             console.log('Selected chord from Wix:', req.body.nameChord);
 
             
-            await mixNameWithChordFile(
-                MASTER_SONG,
-                cleanWavPath,
-                path.join(chordFolder, req.body.nameChord || 'D_major.wav'),
-                finalPath,
-                finalDuration
-            );
+            const selectedMasterSong = path.join(
+    masterFolder,
+    req.body.masterSong || 'master_song.wav'
+);
+
+const selectedChordFile = path.join(
+    chordFolder,
+    req.body.nameChord || 'D_major.wav'
+);
+
+console.log('Selected master from Wix:', req.body.masterSong);
+console.log('Selected chord from Wix:', req.body.nameChord);
+
+await mixNameWithChordFile(
+    selectedMasterSong,
+    cleanWavPath,
+    selectedChordFile,
+    finalPath,
+    finalDuration
+);
 
             await createPreviewWithTag(
                 finalPath,
