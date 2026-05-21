@@ -314,9 +314,10 @@ function convertToCleanWav(inputPath, outputPath) {
     );
 }
 
-function mixNameWithGeneratedChord(
+function mixNameWithChordFile(
     masterSong,
     nameAudio,
+    chordFile,
     outputFile,
     finalDuration
 ) {
@@ -337,18 +338,15 @@ function mixNameWithGeneratedChord(
             masterSong,
             '-i',
             nameAudio,
+            '-i',
+            chordFile,
+            
             '-filter_complex',
             [
                 `[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${MASTER_GAIN}[master]`,
                 `[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,adelay=${NAME_START_MS}|${NAME_START_MS},volume=${NAME_GAIN}[name]`,
 
-                `sine=frequency=146.83:duration=${CHORD_DURATION_SECONDS}:sample_rate=48000[d_low]`,
-                `sine=frequency=293.66:duration=${CHORD_DURATION_SECONDS}:sample_rate=48000[d]`,
-                `sine=frequency=369.99:duration=${CHORD_DURATION_SECONDS}:sample_rate=48000[fs]`,
-                `sine=frequency=440.00:duration=${CHORD_DURATION_SECONDS}:sample_rate=48000[a]`,
-
-                `[d_low][d][fs][a]amix=inputs=4:duration=longest:normalize=0,volume=${CHORD_GAIN},afade=t=in:st=0:d=0.15,afade=t=out:st=5.3:d=2.7[chordraw]`,
-                `[chordraw]adelay=${CHORD_START_MS}|${CHORD_START_MS}[chord]`,
+                `[2:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${CHORD_GAIN},afade=t=in:st=0:d=0.15,afade=t=out:st=5.3:d=2.7,adelay=${CHORD_START_MS}|${CHORD_START_MS}[chord]`,    
 
                 '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]',
                 `[mixed]afade=t=out:st=${fadeStart}:d=0.7[out]`
