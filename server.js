@@ -531,7 +531,7 @@ app.post(
                 nameDuration +
                 END_TAIL_SECONDS;
 
-            await mixNameWithChordFile
+            await mixNameWithChordFile(
                 MASTER_SONG,
                 cleanWavPath,
                 finalPath,
