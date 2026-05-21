@@ -538,6 +538,16 @@ app.post(
                 req.body.nameChord || 'D_major.wav'
             );
 
+
+            console.log('REQ BODY:', req.body);
+            console.log('Selected master from request:', req.body.masterSong);
+            console.log('Selected chord from request:', req.body.nameChord);
+            console.log('Selected master full path:', selectedMasterSong);
+            console.log('Selected chord full path:', selectedChordFile);
+
+
+
+            
             const nameStartMs = req.body.insertionPoint
                 ? Math.round(parseFloat(req.body.insertionPoint) * 1000)
                 : NAME_START_MS;
