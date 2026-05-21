@@ -598,10 +598,14 @@ app.post(
                 nameDuration +
                 END_TAIL_SECONDS;
 
+
+            console.log('Selected chord from Wix:', req.body.nameChord);
+
+            
             await mixNameWithChordFile(
                 MASTER_SONG,
                 cleanWavPath,
-                path.join(chordFolder, req.body?.nameChord || 'D_major.wav'),
+                path.join(chordFolder, req.body.nameChord || 'D_major.wav'),
                 finalPath,
                 finalDuration
             );
