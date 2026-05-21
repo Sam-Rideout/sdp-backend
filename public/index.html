@@ -109,7 +109,7 @@ audio{
 <h1>Record The Name Here</h1>
 
 <div class="note">
-Type the first name, then click Record. After the countdown, listen to the D major guide chord, then sing the name clearly right after the music.
+Type the first name, then click Record. After the countdown, listen to the guide chord, then sing the name clearly.
 </div>
 
 <input
@@ -158,6 +158,21 @@ Ready
 
 <script>
 
+const params =
+    new URLSearchParams(
+        window.location.search
+    );
+
+console.log(
+    'masterSong:',
+    params.get('masterSong')
+);
+
+console.log(
+    'nameChord:',
+    params.get('nameChord')
+);
+
 let mediaRecorder;
 let audioChunks = [];
 let audioBlob;
@@ -179,8 +194,6 @@ const SILENCE_STOP_DELAY_MS = 1000;
 const MIN_RECORDING_TIME_MS = 700;
 const MAX_RECORDING_TIME_MS = 7000;
 
-const GUIDE_CHORD_DURATION_MS = 1600;
-
 const RETURN_URL =
 'https://brightlight506.wixstudio.com/sdp-songs/collect-name';
 
@@ -188,7 +201,6 @@ let recordingStartedAt = null;
 let latestFinalSongUrl = null;
 let latestPreviewUrl = null;
 let previewAlreadyPlayed = false;
-
 
 const recordBtn =
 document.getElementById('recordBtn');
@@ -222,8 +234,6 @@ document.getElementById('volumeMeterWrap');
 
 const volumeMeter =
 document.getElementById('volumeMeter');
-
-audioPlayback.controls = true;
 
 function formatTime(seconds){
 
@@ -261,398 +271,6 @@ function stopTimer(){
     clearInterval(timerInterval);
 }
 
-function wait(ms){
-
-    return new Promise(resolve =>
-        setTimeout(resolve, ms)
-    );
-}
-
-function createPianoHammerNoise(
-    context,
-    startTime,
-    duration,
-    destination,
-    level
-){
-
-    const bufferSize =
-        context.sampleRate * duration;
-
-    const buffer =
-        context.createBuffer(
-            1,
-            bufferSize,
-            context.sampleRate
-        );
-
-    const data =
-        buffer.getChannelData(0);
-
-    for(let i = 0; i < bufferSize; i++){
-
-        data[i] =
-            (Math.random() * 2 - 1)
-            *
-            Math.pow(
-                1 - i / bufferSize,
-                2
-            );
-    }
-
-    const noise =
-        context.createBufferSource();
-
-    const filter =
-        context.createBiquadFilter();
-
-    const gain =
-        context.createGain();
-
-    noise.buffer = buffer;
-
-    filter.type = 'bandpass';
-
-    filter.frequency.setValueAtTime(
-        1800,
-        startTime
-    );
-
-    filter.Q.setValueAtTime(
-        0.8,
-        startTime
-    );
-
-    gain.gain.setValueAtTime(
-        level,
-        startTime
-    );
-
-    gain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        startTime + duration
-    );
-
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(destination);
-
-    noise.start(startTime);
-    noise.stop(startTime + duration);
-}
-
-function playPianoTone(
-    context,
-    frequency,
-    startTime,
-    duration,
-    destination,
-    level
-){
-
-    const outputGain =
-        context.createGain();
-
-    const filter =
-        context.createBiquadFilter();
-
-    filter.type = 'lowpass';
-
-    filter.frequency.setValueAtTime(
-        3600,
-        startTime
-    );
-
-    filter.frequency.exponentialRampToValueAtTime(
-        1100,
-        startTime + duration
-    );
-
-    outputGain.gain.setValueAtTime(
-        0.0001,
-        startTime
-    );
-
-    outputGain.gain.exponentialRampToValueAtTime(
-        level,
-        startTime + 0.012
-    );
-
-    outputGain.gain.exponentialRampToValueAtTime(
-        level * 0.42,
-        startTime + 0.28
-    );
-
-    outputGain.gain.exponentialRampToValueAtTime(
-        level * 0.20,
-        startTime + 1.15
-    );
-
-    outputGain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        startTime + duration
-    );
-
-    const partials = [
-
-        {
-            multiple: 1.000,
-            gain: 1.00,
-            type: 'triangle',
-            detune: 0
-        },
-
-        {
-            multiple: 2.005,
-            gain: 0.42,
-            type: 'sine',
-            detune: 2
-        },
-
-        {
-            multiple: 3.010,
-            gain: 0.23,
-            type: 'sine',
-            detune: -3
-        },
-
-        {
-            multiple: 4.020,
-            gain: 0.12,
-            type: 'sine',
-            detune: 4
-        },
-
-        {
-            multiple: 5.030,
-            gain: 0.06,
-            type: 'sine',
-            detune: -5
-        }
-    ];
-
-    partials.forEach(partial => {
-
-        const oscillator =
-            context.createOscillator();
-
-        const gain =
-            context.createGain();
-
-        oscillator.type =
-            partial.type;
-
-        oscillator.frequency.setValueAtTime(
-            frequency * partial.multiple,
-            startTime
-        );
-
-        oscillator.detune.setValueAtTime(
-            partial.detune,
-            startTime
-        );
-
-        gain.gain.setValueAtTime(
-            partial.gain,
-            startTime
-        );
-
-        oscillator.connect(gain);
-        gain.connect(filter);
-
-        oscillator.start(startTime);
-
-        oscillator.stop(
-            startTime + duration + 0.1
-        );
-    });
-
-    createPianoHammerNoise(
-        context,
-        startTime,
-        0.08,
-        filter,
-        level * 0.22
-    );
-
-    filter.connect(outputGain);
-    outputGain.connect(destination);
-}
-
-async function playGuideChord(){
-
-    const chordContext =
-        new AudioContext();
-
-    const masterGain =
-        chordContext.createGain();
-
-    const delay =
-        chordContext.createDelay();
-
-    const feedback =
-        chordContext.createGain();
-
-    const wetGain =
-        chordContext.createGain();
-
-    masterGain.gain.setValueAtTime(
-        0.75,
-        chordContext.currentTime
-    );
-
-    delay.delayTime.setValueAtTime(
-        0.18,
-        chordContext.currentTime
-    );
-
-    feedback.gain.setValueAtTime(
-        0.22,
-        chordContext.currentTime
-    );
-
-    wetGain.gain.setValueAtTime(
-        0.18,
-        chordContext.currentTime
-    );
-
-    delay.connect(feedback);
-    feedback.connect(delay);
-    delay.connect(wetGain);
-
-    masterGain.connect(
-        chordContext.destination
-    );
-
-    masterGain.connect(delay);
-
-    wetGain.connect(
-        chordContext.destination
-    );
-
-    const now =
-        chordContext.currentTime + 0.05;
-
-    const duration =
-        GUIDE_CHORD_DURATION_MS / 1000;
-
-    const notes = [
-
-        {
-            frequency: 146.83,
-            delay: 0.00,
-            level: 0.16
-        },
-
-        {
-            frequency: 220.00,
-            delay: 0.025,
-            level: 0.11
-        },
-
-        {
-            frequency: 293.66,
-            delay: 0.045,
-            level: 0.14
-        },
-
-        {
-            frequency: 369.99,
-            delay: 0.065,
-            level: 0.11
-        },
-
-        {
-            frequency: 440.00,
-            delay: 0.085,
-            level: 0.10
-        },
-
-        {
-            frequency: 587.33,
-            delay: 0.110,
-            level: 0.08
-        }
-    ];
-
-    notes.forEach(note => {
-
-        playPianoTone(
-
-            chordContext,
-
-            note.frequency,
-
-            now + note.delay,
-
-            duration - note.delay,
-
-            masterGain,
-
-            note.level
-        );
-    });
-
-    await wait(
-        GUIDE_CHORD_DURATION_MS
-    );
-
-    chordContext.close();
-}
-
-async function runCountdown(){
-
-    countdownDiv.innerText = '3';
-
-    statusDiv.innerText =
-        'Get ready to sing the name...';
-
-    await wait(1000);
-
-    countdownDiv.innerText = '2';
-
-    await wait(1000);
-
-    countdownDiv.innerText = '1';
-
-    await wait(1000);
-
-    countdownDiv.innerText =
-        'Listen...';
-
-    statusDiv.innerText =
-        'Listen to the D major piano chord...';
-
-    await playGuideChord();
-
-    countdownDiv.innerText =
-        'Sing now';
-
-    statusDiv.innerText =
-        'Sing the name now';
-
-    await wait(100);
-
-    countdownDiv.innerText = '';
-}
-
-function calculateVolume(dataArray){
-
-    let sum = 0;
-
-    for(let i = 0; i < dataArray.length; i++){
-
-        const value =
-            (dataArray[i] - 128) / 128;
-
-        sum += value * value;
-    }
-
-    return Math.sqrt(
-        sum / dataArray.length
-    );
-}
-
 function stopRecording(reason){
 
     if(
@@ -688,12 +306,6 @@ function startSilenceDetection(stream){
     const dataArray =
         new Uint8Array(analyser.fftSize);
 
-    silenceStartedAt = null;
-    hasDetectedVoice = false;
-
-    volumeMeterWrap.style.display =
-        'block';
-
     silenceCheckInterval =
         setInterval(() => {
 
@@ -701,8 +313,20 @@ function startSilenceDetection(stream){
             dataArray
         );
 
+        let sum = 0;
+
+        for(let i = 0; i < dataArray.length; i++){
+
+            const value =
+                (dataArray[i] - 128) / 128;
+
+            sum += value * value;
+        }
+
         const volume =
-            calculateVolume(dataArray);
+            Math.sqrt(
+                sum / dataArray.length
+            );
 
         const volumePercent =
             Math.min(
@@ -712,57 +336,6 @@ function startSilenceDetection(stream){
 
         volumeMeter.style.width =
             volumePercent + '%';
-
-        const now = Date.now();
-
-        const recordingAge =
-            now - recordingStartedAt;
-
-        if(
-            recordingAge >
-            MAX_RECORDING_TIME_MS
-        ){
-
-            stopRecording(
-                'Maximum recording time reached. Processing...'
-            );
-
-            return;
-        }
-
-        if(volume > SILENCE_THRESHOLD){
-
-            hasDetectedVoice = true;
-            silenceStartedAt = null;
-
-            return;
-        }
-
-        if(
-            !hasDetectedVoice ||
-            recordingAge <
-            MIN_RECORDING_TIME_MS
-        ){
-
-            return;
-        }
-
-        if(!silenceStartedAt){
-
-            silenceStartedAt = now;
-
-            return;
-        }
-
-        if(
-            now - silenceStartedAt >=
-            SILENCE_STOP_DELAY_MS
-        ){
-
-            stopRecording(
-                'Silence detected. Processing...'
-            );
-        }
 
     }, 100);
 }
@@ -818,6 +391,46 @@ async function uploadRecording(){
         `${name}.webm`
     );
 
+    formData.append(
+        'masterSong',
+        params.get('masterSong') || ''
+    );
+
+    formData.append(
+        'nameChord',
+        params.get('nameChord') || ''
+    );
+
+    formData.append(
+        'nameGain',
+        params.get('nameGain') || ''
+    );
+
+    formData.append(
+        'chordGain',
+        params.get('chordGain') || ''
+    );
+
+    formData.append(
+        'masterGain',
+        params.get('masterGain') || ''
+    );
+
+    formData.append(
+        'insertionPoint',
+        params.get('insertionPoint') || ''
+    );
+
+    console.log(
+        'Uploading masterSong:',
+        params.get('masterSong')
+    );
+
+    console.log(
+        'Uploading nameChord:',
+        params.get('nameChord')
+    );
+
     statusDiv.innerText =
         'Uploading and processing...';
 
@@ -849,7 +462,7 @@ async function uploadRecording(){
                 latestFinalSongUrl;
 
             statusDiv.innerText =
-                'Song complete! Preview or download below.';
+                'Song complete!';
 
             previewBtn.style.display =
                 'inline-block';
@@ -882,7 +495,7 @@ async () => {
 
         recordBtn.disabled = true;
 
-        stopBtn.disabled = true;
+        stopBtn.disabled = false;
 
         previewBtn.style.display =
             'none';
@@ -894,36 +507,10 @@ async () => {
 
         audioBlob = null;
 
-        recordingStartedAt = null;
-
-        latestFinalSongUrl = null;
-
-        latestPreviewUrl = null;
-
-	previewAlreadyPlayed = false;
-
-        audioPlayback.pause();
-
-        audioPlayback.removeAttribute('src');
-
-        audioPlayback.load();
-
-        audioPlayback.style.display =
-            'none';
-
-        timerDiv.innerText = '00:00';
-
-        volumeMeter.style.width = '0%';
-
-        volumeMeterWrap.style.display =
-            'none';
-
         currentStream =
             await navigator.mediaDevices.getUserMedia({
                 audio: true
             });
-
-        await runCountdown();
 
         mediaRecorder =
             new MediaRecorder(currentStream);
@@ -960,13 +547,6 @@ async () => {
             audioPlayback.style.display =
                 'inline-block';
 
-            statusDiv.innerText =
-                'Recording complete. Uploading now...';
-
-            statusDiv.classList.remove(
-                'recording'
-            );
-
             if(currentStream){
 
                 currentStream
@@ -992,14 +572,11 @@ async () => {
             currentStream
         );
 
-        stopBtn.disabled = false;
+        volumeMeterWrap.style.display =
+            'block';
 
         statusDiv.innerText =
-            '● Recording... Sing the name now';
-
-        statusDiv.classList.add(
-            'recording'
-        );
+            '● Recording...';
 
     }catch(err){
 
@@ -1008,11 +585,6 @@ async () => {
         recordBtn.disabled = false;
 
         stopBtn.disabled = true;
-
-        countdownDiv.innerText = '';
-
-        volumeMeterWrap.style.display =
-            'none';
 
         statusDiv.innerText =
             'Microphone permission denied';
@@ -1034,36 +606,6 @@ cancelBtn.addEventListener(
 
 () => {
 
-    try{
-
-        if(
-            mediaRecorder &&
-            mediaRecorder.state === 'recording'
-        ){
-
-            mediaRecorder.stop();
-        }
-
-    }catch(err){
-
-        console.error(err);
-    }
-
-    stopTimer();
-
-    stopSilenceDetection();
-
-    if(currentStream){
-
-        currentStream
-            .getTracks()
-            .forEach(track =>
-                track.stop()
-            );
-
-        currentStream = null;
-    }
-
     window.location.href =
         RETURN_URL;
 });
@@ -1076,7 +618,7 @@ async () => {
     if(previewAlreadyPlayed){
 
         statusDiv.innerText =
-            'Preview already used. Purchase to unlock full download.';
+            'Preview already used.';
 
         return;
     }
@@ -1104,7 +646,7 @@ async () => {
         await audioPlayback.play();
 
         statusDiv.innerText =
-            'Playing protected preview...';
+            'Playing preview...';
 
     }catch(err){
 
@@ -1125,9 +667,6 @@ async () => {
     }
 
     try{
-
-        statusDiv.innerText =
-            'Downloading song...';
 
         const link =
             document.createElement('a');
@@ -1156,7 +695,7 @@ async () => {
         console.error(err);
 
         statusDiv.innerText =
-            'Download failed. Please try again.';
+            'Download failed.';
     }
 });
 
