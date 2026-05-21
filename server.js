@@ -492,10 +492,22 @@ app.post('/render-from-wix', async (req, res) => {
 
         console.error(err);
 
-        res.status(500).json({
-            success: false,
-            error: err.message
-        });
+const payload = req.body;
+
+const inputPath = path.join(
+    uploadFolder,
+    `wix_${Date.now()}.wav`
+);
+
+await downloadFile(
+    payload.nameAudioUrl,
+    inputPath
+);
+
+res.json({
+    success: true,
+    message: 'Audio downloaded successfully.'
+});
     }
 });
 
