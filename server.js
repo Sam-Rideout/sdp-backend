@@ -24,6 +24,8 @@ const finalFolder = path.join(__dirname, 'final');
 const masterFolder = path.join(__dirname, 'master');
 const processedFolder = path.join(__dirname, 'processed');
 
+const chordFolder = path.join(__dirname, 'chords');
+
 const MASTER_SONG = path.join(masterFolder, 'master_song.wav');
 const PREVIEW_TAG = path.join(masterFolder, 'preview_tag.wav');
 
