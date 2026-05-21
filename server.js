@@ -62,6 +62,8 @@ const usedPreviewFiles = new Set();
 
 app.use(cors());
 
+app.use(express.json({ limit: '25mb' }));
+
 app.use(
     express.static(
         path.join(__dirname, 'public')
