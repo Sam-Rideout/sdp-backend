@@ -3,23 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SDP Recorder Upload Test</title>
+<title>SDP Recorder</title>
 
 <style>
-
 body{
     background:#7b3f00;
     color:white;
     font-family:Arial;
     text-align:center;
-    padding-top:80px;
+    padding-top:60px;
 }
 
 input{
     padding:12px;
     width:300px;
     font-size:18px;
-    margin-bottom:30px;
+    margin-bottom:20px;
 }
 
 button{
@@ -42,11 +41,31 @@ audio{
     display:none;
 }
 
-#countdown{
-    font-size:56px;
+.note{
+    max-width:620px;
+    margin:0 auto 24px;
+    font-size:18px;
+    line-height:1.4;
+}
+
+#chordPrompt{
+    font-size:24px;
     font-weight:bold;
-    margin-top:20px;
-    min-height:70px;
+    margin:18px auto 10px;
+    min-height:34px;
+}
+
+#recordPrompt{
+    font-size:20px;
+    margin:10px auto 20px;
+    min-height:28px;
+}
+
+#countdown{
+    font-size:64px;
+    font-weight:bold;
+    margin-top:10px;
+    min-height:78px;
 }
 
 #status{
@@ -76,17 +95,6 @@ audio{
     background:white;
 }
 
-.recording{
-    color:#ffdddd;
-}
-
-.note{
-    max-width:560px;
-    margin:0 auto 30px;
-    font-size:18px;
-    line-height:1.4;
-}
-
 #cancelBtn{
     background:#d7c3a7;
     color:#5a2d00;
@@ -100,7 +108,6 @@ audio{
     color:#7b3f00;
     font-weight:bold;
 }
-
 </style>
 </head>
 
@@ -109,69 +116,39 @@ audio{
 <h1>Record The Name Here</h1>
 
 <div class="note">
-Type the first name, then click Record. After the countdown, listen to the guide chord, then sing the name clearly.
+Type the first name, click Record, wait for the countdown, listen to the guide chord, then sing the name clearly.
 </div>
 
-<input
-    id="nameInput"
-    type="text"
-    placeholder="Recipient First Name"
->
+<input id="nameInput" type="text" placeholder="Recipient First Name">
 
 <br>
 
-<button id="recordBtn">
-Record
-</button>
+<button id="recordBtn">Record</button>
+<button id="stopBtn" disabled>Stop</button>
+<button id="cancelBtn">Cancel & Return</button>
+<button id="previewBtn">Preview Song</button>
+<button id="downloadReturnBtn">Purchase & Download</button>
 
-<button id="stopBtn" disabled>
-Stop
-</button>
-
-<button id="cancelBtn">
-Cancel & Return
-</button>
-
-<button id="previewBtn">
-Preview Song
-</button>
-
-<button id="downloadReturnBtn">
-Purchase & Download
-</button>
-
+<div id="chordPrompt"></div>
+<div id="recordPrompt"></div>
 <div id="countdown"></div>
 
-<div id="timer">
-00:00
-</div>
+<div id="timer">00:00</div>
 
 <div id="volumeMeterWrap">
     <div id="volumeMeter"></div>
 </div>
 
 <audio id="audioPlayback" controls></audio>
+<audio id="guideChordAudio"></audio>
 
-<div id="status">
-Ready
-</div>
+<div id="status">Ready</div>
 
 <script>
+const params = new URLSearchParams(window.location.search);
 
-const params =
-    new URLSearchParams(
-        window.location.search
-    );
-
-console.log(
-    'masterSong:',
-    params.get('masterSong')
-);
-
-console.log(
-    'nameChord:',
-    params.get('nameChord')
-);
+console.log('masterSong:', params.get('masterSong'));
+console.log('nameChord:', params.get('nameChord'));
 
 let mediaRecorder;
 let audioChunks = [];
@@ -186,101 +163,101 @@ let analyser = null;
 let sourceNode = null;
 let silenceCheckInterval = null;
 
-let silenceStartedAt = null;
-let hasDetectedVoice = false;
-
-const SILENCE_THRESHOLD = 0.035;
-const SILENCE_STOP_DELAY_MS = 1000;
-const MIN_RECORDING_TIME_MS = 700;
-const MAX_RECORDING_TIME_MS = 7000;
-
-const RETURN_URL =
-'https://brightlight506.wixstudio.com/sdp-songs/collect-name';
+const RETURN_URL = 'https://brightlight506.wixstudio.com/sdp-songs/collect-name';
 
 let recordingStartedAt = null;
 let latestFinalSongUrl = null;
 let latestPreviewUrl = null;
 let previewAlreadyPlayed = false;
 
-const recordBtn =
-document.getElementById('recordBtn');
+const recordBtn = document.getElementById('recordBtn');
+const stopBtn = document.getElementById('stopBtn');
+const cancelBtn = document.getElementById('cancelBtn');
+const previewBtn = document.getElementById('previewBtn');
+const downloadReturnBtn = document.getElementById('downloadReturnBtn');
 
-const stopBtn =
-document.getElementById('stopBtn');
+const audioPlayback = document.getElementById('audioPlayback');
+const guideChordAudio = document.getElementById('guideChordAudio');
 
-const cancelBtn =
-document.getElementById('cancelBtn');
+const statusDiv = document.getElementById('status');
+const timerDiv = document.getElementById('timer');
+const countdownDiv = document.getElementById('countdown');
+const chordPromptDiv = document.getElementById('chordPrompt');
+const recordPromptDiv = document.getElementById('recordPrompt');
 
-const previewBtn =
-document.getElementById('previewBtn');
+const volumeMeterWrap = document.getElementById('volumeMeterWrap');
+const volumeMeter = document.getElementById('volumeMeter');
 
-const downloadReturnBtn =
-document.getElementById('downloadReturnBtn');
+const nameChord = params.get('nameChord') || '';
 
-const audioPlayback =
-document.getElementById('audioPlayback');
+if(nameChord){
+    chordPromptDiv.innerText = `Guide chord: ${nameChord}`;
+}else{
+    chordPromptDiv.innerText = 'Guide chord will play before recording.';
+}
 
-const statusDiv =
-document.getElementById('status');
-
-const timerDiv =
-document.getElementById('timer');
-
-const countdownDiv =
-document.getElementById('countdown');
-
-const volumeMeterWrap =
-document.getElementById('volumeMeterWrap');
-
-const volumeMeter =
-document.getElementById('volumeMeter');
+recordPromptDiv.innerText = 'Press Record when ready.';
 
 function formatTime(seconds){
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
 
-    const mins =
-        Math.floor(seconds / 60);
-
-    const secs =
-        seconds % 60;
-
-    return String(mins)
-        .padStart(2, '0')
-        + ':'
-        + String(secs)
-        .padStart(2, '0');
+    return String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
 }
 
 function startTimer(){
-
     secondsElapsed = 0;
-
     timerDiv.innerText = '00:00';
 
     timerInterval = setInterval(() => {
-
         secondsElapsed++;
-
-        timerDiv.innerText =
-            formatTime(secondsElapsed);
-
+        timerDiv.innerText = formatTime(secondsElapsed);
     }, 1000);
 }
 
 function stopTimer(){
-
     clearInterval(timerInterval);
 }
 
+function sleep(ms){
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function runCountdown(){
+    recordPromptDiv.innerText = 'Get ready...';
+    countdownDiv.innerText = '3';
+    await sleep(1000);
+
+    countdownDiv.innerText = '2';
+    await sleep(1000);
+
+    countdownDiv.innerText = '1';
+    await sleep(1000);
+
+    countdownDiv.innerText = 'Listen';
+    recordPromptDiv.innerText = 'Listen to the guide chord.';
+}
+
+async function playGuideChord(){
+    if(!nameChord){
+        await sleep(700);
+        return;
+    }
+
+    try{
+        guideChordAudio.src = `/chords/${nameChord}`;
+        guideChordAudio.load();
+        await guideChordAudio.play();
+        await sleep(1200);
+    }catch(err){
+        console.warn('Guide chord unavailable:', err);
+        await sleep(700);
+    }
+}
+
 function stopRecording(reason){
-
-    if(
-        mediaRecorder &&
-        mediaRecorder.state === 'recording'
-    ){
-
-        statusDiv.innerText =
-            reason || 'Stopping...';
-
+    if(mediaRecorder && mediaRecorder.state === 'recording'){
+        statusDiv.innerText = reason || 'Stopping...';
         mediaRecorder.stop();
     }
 
@@ -289,337 +266,209 @@ function stopRecording(reason){
 }
 
 function startSilenceDetection(stream){
-
-    audioContext =
-        new AudioContext();
-
-    analyser =
-        audioContext.createAnalyser();
-
-    sourceNode =
-        audioContext.createMediaStreamSource(stream);
+    audioContext = new AudioContext();
+    analyser = audioContext.createAnalyser();
+    sourceNode = audioContext.createMediaStreamSource(stream);
 
     analyser.fftSize = 2048;
-
     sourceNode.connect(analyser);
 
-    const dataArray =
-        new Uint8Array(analyser.fftSize);
+    const dataArray = new Uint8Array(analyser.fftSize);
 
-    silenceCheckInterval =
-        setInterval(() => {
-
-        analyser.getByteTimeDomainData(
-            dataArray
-        );
+    silenceCheckInterval = setInterval(() => {
+        analyser.getByteTimeDomainData(dataArray);
 
         let sum = 0;
 
         for(let i = 0; i < dataArray.length; i++){
-
-            const value =
-                (dataArray[i] - 128) / 128;
-
+            const value = (dataArray[i] - 128) / 128;
             sum += value * value;
         }
 
-        const volume =
-            Math.sqrt(
-                sum / dataArray.length
-            );
+        const volume = Math.sqrt(sum / dataArray.length);
+        const volumePercent = Math.min(100, Math.round(volume * 500));
 
-        const volumePercent =
-            Math.min(
-                100,
-                Math.round(volume * 500)
-            );
-
-        volumeMeter.style.width =
-            volumePercent + '%';
-
+        volumeMeter.style.width = volumePercent + '%';
     }, 100);
 }
 
 function stopSilenceDetection(){
-
     if(silenceCheckInterval){
-
-        clearInterval(
-            silenceCheckInterval
-        );
-
+        clearInterval(silenceCheckInterval);
         silenceCheckInterval = null;
     }
 
     if(sourceNode){
-
         sourceNode.disconnect();
-
         sourceNode = null;
     }
 
     if(audioContext){
-
         audioContext.close();
-
         audioContext = null;
     }
 
     volumeMeter.style.width = '0%';
-
-    volumeMeterWrap.style.display =
-        'none';
+    volumeMeterWrap.style.display = 'none';
 }
 
 async function uploadRecording(){
-
     if(!audioBlob){
         return;
     }
 
-    const formData =
-        new FormData();
+    const formData = new FormData();
 
-    const name =
-        document.getElementById(
-            'nameInput'
-        ).value || 'recording';
+    const name = document.getElementById('nameInput').value || 'recording';
 
-    formData.append(
-        'audio',
-        audioBlob,
-        `${name}.webm`
-    );
+    formData.append('audio', audioBlob, `${name}.webm`);
+    formData.append('masterSong', params.get('masterSong') || '');
+    formData.append('nameChord', params.get('nameChord') || '');
+    formData.append('nameGain', params.get('nameGain') || '');
+    formData.append('chordGain', params.get('chordGain') || '');
+    formData.append('masterGain', params.get('masterGain') || '');
+    formData.append('insertionPoint', params.get('insertionPoint') || '');
 
-    formData.append(
-        'masterSong',
-        params.get('masterSong') || ''
-    );
+    console.log('Uploading masterSong:', params.get('masterSong'));
+    console.log('Uploading nameChord:', params.get('nameChord'));
 
-    formData.append(
-        'nameChord',
-        params.get('nameChord') || ''
-    );
-
-    formData.append(
-        'nameGain',
-        params.get('nameGain') || ''
-    );
-
-    formData.append(
-        'chordGain',
-        params.get('chordGain') || ''
-    );
-
-    formData.append(
-        'masterGain',
-        params.get('masterGain') || ''
-    );
-
-    formData.append(
-        'insertionPoint',
-        params.get('insertionPoint') || ''
-    );
-
-    console.log(
-        'Uploading masterSong:',
-        params.get('masterSong')
-    );
-
-    console.log(
-        'Uploading nameChord:',
-        params.get('nameChord')
-    );
-
-    statusDiv.innerText =
-        'Uploading and processing...';
+    statusDiv.innerText = 'Uploading and processing...';
+    recordPromptDiv.innerText = 'Building your song...';
+    countdownDiv.innerText = '';
 
     try{
-
-        const response =
-            await fetch('/upload',{
-
+        const response = await fetch('/upload',{
             method:'POST',
-
             body:formData
         });
 
-        const result =
-            await response.json();
+        const result = await response.json();
 
         console.log(result);
 
         if(result.success){
+            latestFinalSongUrl = result.finalSongUrl || `/final/${result.finalSong}`;
+            latestPreviewUrl = result.previewUrl || latestFinalSongUrl;
 
-            latestFinalSongUrl =
-                result.finalSongUrl
-                ||
-                `/final/${result.finalSong}`;
+            statusDiv.innerText = 'Song complete!';
+            recordPromptDiv.innerText = 'Preview or download your song.';
 
-            latestPreviewUrl =
-                result.previewUrl
-                ||
-                latestFinalSongUrl;
-
-            statusDiv.innerText =
-                'Song complete!';
-
-            previewBtn.style.display =
-                'inline-block';
-
-            downloadReturnBtn.style.display =
-                'inline-block';
-
+            previewBtn.style.display = 'inline-block';
+            downloadReturnBtn.style.display = 'inline-block';
         }else{
-
-            statusDiv.innerText =
-                'Processing failed: '
-                + result.error;
+            statusDiv.innerText = 'Processing failed: ' + result.error;
+            recordPromptDiv.innerText = 'Please try again.';
         }
-
     }catch(err){
-
         console.error(err);
-
-        statusDiv.innerText =
-            'Upload failed';
+        statusDiv.innerText = 'Upload failed';
+        recordPromptDiv.innerText = 'Please try again.';
     }
 }
 
-recordBtn.addEventListener(
-'click',
+async function startActualRecording(){
+    mediaRecorder.start();
 
-async () => {
+    recordingStartedAt = Date.now();
 
+    startTimer();
+    startSilenceDetection(currentStream);
+
+    volumeMeterWrap.style.display = 'block';
+
+    countdownDiv.innerText = 'Sing';
+    recordPromptDiv.innerText = 'Sing the name clearly now.';
+    statusDiv.innerText = '● Recording...';
+}
+
+recordBtn.addEventListener('click', async () => {
     try{
-
         recordBtn.disabled = true;
+        stopBtn.disabled = true;
 
-        stopBtn.disabled = false;
+        previewBtn.style.display = 'none';
+        downloadReturnBtn.style.display = 'none';
 
-        previewBtn.style.display =
-            'none';
-
-        downloadReturnBtn.style.display =
-            'none';
+        audioPlayback.style.display = 'none';
+        countdownDiv.innerText = '';
 
         audioChunks = [];
-
         audioBlob = null;
 
-        currentStream =
-            await navigator.mediaDevices.getUserMedia({
-                audio: true
-            });
+        const enteredName = document.getElementById('nameInput').value.trim();
 
-        mediaRecorder =
-            new MediaRecorder(currentStream);
+        if(!enteredName){
+            statusDiv.innerText = 'Please enter a first name.';
+            recordPromptDiv.innerText = 'Type the name first, then press Record.';
+            recordBtn.disabled = false;
+            return;
+        }
 
-        mediaRecorder.ondataavailable =
-        event => {
+        statusDiv.innerText = 'Preparing microphone...';
 
+        currentStream = await navigator.mediaDevices.getUserMedia({
+            audio: true
+        });
+
+        mediaRecorder = new MediaRecorder(currentStream);
+
+        mediaRecorder.ondataavailable = event => {
             if(event.data.size > 0){
-
-                audioChunks.push(
-                    event.data
-                );
+                audioChunks.push(event.data);
             }
         };
 
-        mediaRecorder.onstop =
-        async () => {
-
+        mediaRecorder.onstop = async () => {
             stopTimer();
-
             stopSilenceDetection();
 
-            audioBlob =
-                new Blob(audioChunks,{
-                    type:'audio/webm'
-                });
+            audioBlob = new Blob(audioChunks,{
+                type:'audio/webm'
+            });
 
-            const audioUrl =
-                URL.createObjectURL(audioBlob);
+            const audioUrl = URL.createObjectURL(audioBlob);
 
-            audioPlayback.src =
-                audioUrl;
-
-            audioPlayback.style.display =
-                'inline-block';
+            audioPlayback.src = audioUrl;
+            audioPlayback.style.display = 'inline-block';
 
             if(currentStream){
-
-                currentStream
-                    .getTracks()
-                    .forEach(track =>
-                        track.stop()
-                    );
-
+                currentStream.getTracks().forEach(track => track.stop());
                 currentStream = null;
             }
 
             await uploadRecording();
         };
 
-        mediaRecorder.start();
+        await runCountdown();
+        await playGuideChord();
 
-        recordingStartedAt =
-            Date.now();
+        stopBtn.disabled = false;
 
-        startTimer();
-
-        startSilenceDetection(
-            currentStream
-        );
-
-        volumeMeterWrap.style.display =
-            'block';
-
-        statusDiv.innerText =
-            '● Recording...';
+        await startActualRecording();
 
     }catch(err){
-
         console.error(err);
 
         recordBtn.disabled = false;
-
         stopBtn.disabled = true;
 
-        statusDiv.innerText =
-            'Microphone permission denied';
+        countdownDiv.innerText = '';
+        statusDiv.innerText = 'Microphone permission denied';
+        recordPromptDiv.innerText = 'Allow microphone access and try again.';
     }
 });
 
-stopBtn.addEventListener(
-'click',
-
-() => {
-
-    stopRecording(
-        'Stopping...'
-    );
+stopBtn.addEventListener('click', () => {
+    stopRecording('Stopping...');
 });
 
-cancelBtn.addEventListener(
-'click',
-
-() => {
-
-    window.location.href =
-        RETURN_URL;
+cancelBtn.addEventListener('click', () => {
+    window.location.href = RETURN_URL;
 });
 
-previewBtn.addEventListener(
-'click',
-
-async () => {
-
+previewBtn.addEventListener('click', async () => {
     if(previewAlreadyPlayed){
-
-        statusDiv.innerText =
-            'Preview already used.';
-
+        statusDiv.innerText = 'Preview already used.';
         return;
     }
 
@@ -628,78 +477,48 @@ async () => {
     }
 
     try{
-
         previewAlreadyPlayed = true;
-
         previewBtn.disabled = true;
 
-        audioPlayback.src =
-            latestPreviewUrl;
-
-        audioPlayback.style.display =
-            'inline-block';
-
+        audioPlayback.src = latestPreviewUrl;
+        audioPlayback.style.display = 'inline-block';
         audioPlayback.controls = true;
-
         audioPlayback.load();
 
         await audioPlayback.play();
 
-        statusDiv.innerText =
-            'Playing preview...';
-
+        statusDiv.innerText = 'Playing preview...';
     }catch(err){
-
         console.error(err);
-
-        statusDiv.innerText =
-            'Preview unavailable.';
+        statusDiv.innerText = 'Preview unavailable.';
     }
 });
 
-downloadReturnBtn.addEventListener(
-'click',
-
-async () => {
-
+downloadReturnBtn.addEventListener('click', async () => {
     if(!latestFinalSongUrl){
         return;
     }
 
     try{
+        const link = document.createElement('a');
 
-        const link =
-            document.createElement('a');
-
-        link.href =
-            latestFinalSongUrl;
-
-        link.download =
-            'SDP-Song.mp3';
+        link.href = latestFinalSongUrl;
+        link.download = 'SDP-Song.mp3';
 
         document.body.appendChild(link);
-
         link.click();
-
         document.body.removeChild(link);
 
         setTimeout(() => {
-
-            window.location.href =
-                RETURN_URL;
-
+            window.location.href = RETURN_URL;
         }, 1800);
-
     }catch(err){
-
         console.error(err);
-
-        statusDiv.innerText =
-            'Download failed.';
+        statusDiv.innerText = 'Download failed.';
     }
 });
-
 </script>
 
 </body>
 </html>
+
