@@ -534,7 +534,7 @@ app.post(
             await mixNameWithChordFile(
                 MASTER_SONG,
                 cleanWavPath,
-                path.join(chordFolder, req.body.nameChord),
+                path.join(chordFolder, req.body?.nameChord || 'D_major.wav'),
                 finalPath,
                 finalDuration
             );
