@@ -7,10 +7,12 @@ const { execFile } = require('child_process');
 
 const path = require('path');
 
-app.use('/chords', express.static(path.join(__dirname, 'chords')));
+
 
 
 const app = express();
+app.use('/chords', express.static(path.join(__dirname, 'chords')));
+
 
 const isWindows = process.platform === 'win32';
 
