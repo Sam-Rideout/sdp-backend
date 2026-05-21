@@ -190,6 +190,31 @@ function runCommand(command, args, label) {
     });
 }
 
+function downloadFile(url, outputPath) {
+    return new Promise((resolve, reject) => {
+        const https = require('https');
+        const file = fs.createWriteStream(outputPath);
+
+        https.get(url, response => {
+            if (response.statusCode !== 200) {
+                reject(new Error(`Download failed with status ${response.statusCode}`));
+                return;
+            }
+
+            response.pipe(file);
+
+            file.on('finish', () => {
+                file.close(resolve);
+            });
+        }).on('error', error => {
+            deleteFileIfExists(outputPath);
+            reject(error);
+        });
+    });
+}
+
+
+
 function getAudioDuration(filePath) {
     return new Promise((resolve, reject) => {
         execFile(
