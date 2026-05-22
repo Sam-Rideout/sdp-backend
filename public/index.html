@@ -162,6 +162,7 @@ let audioContext = null;
 let analyser = null;
 let sourceNode = null;
 let silenceCheckInterval = null;
+let maxRecordingTimeout = null;
 
 const RETURN_URL = 'https://brightlight506.wixstudio.com/sdp-songs/collect-name';
 
@@ -169,6 +170,15 @@ let recordingStartedAt = null;
 let latestFinalSongUrl = null;
 let latestPreviewUrl = null;
 let previewAlreadyPlayed = false;
+
+const SILENCE_THRESHOLD = 0.035;
+const SILENCE_STOP_DELAY_MS = 1000;
+const MIN_RECORDING_TIME_MS = 700;
+const MAX_RECORDING_TIME_MS = 7000;
+
+const CHORD_FADE_START_MS = 520;
+const CHORD_FADE_DURATION_MS = 220;
+const CHORD_TOTAL_PLAY_MS = 850;
 
 const recordBtn = document.getElementById('recordBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -225,6 +235,7 @@ function sleep(ms){
 
 async function runCountdown(){
     recordPromptDiv.innerText = 'Get ready...';
+
     countdownDiv.innerText = '3';
     await sleep(1000);
 
@@ -246,9 +257,35 @@ async function playGuideChord(){
 
     try{
         guideChordAudio.src = `/chords/${nameChord}`;
+        guideChordAudio.volume = 1;
+        guideChordAudio.currentTime = 0;
         guideChordAudio.load();
+
         await guideChordAudio.play();
-        await sleep(1200);
+
+        setTimeout(() => {
+            const fadeSteps = 10;
+            let currentStep = 0;
+
+            const fadeInterval = setInterval(() => {
+                currentStep++;
+
+                const newVolume = 1 - (currentStep / fadeSteps);
+
+                guideChordAudio.volume = Math.max(0, newVolume);
+
+                if(currentStep >= fadeSteps){
+                    clearInterval(fadeInterval);
+
+                    guideChordAudio.pause();
+                    guideChordAudio.currentTime = 0;
+                    guideChordAudio.volume = 1;
+                }
+            }, CHORD_FADE_DURATION_MS / fadeSteps);
+        }, CHORD_FADE_START_MS);
+
+        await sleep(CHORD_TOTAL_PLAY_MS);
+
     }catch(err){
         console.warn('Guide chord unavailable:', err);
         await sleep(700);
@@ -275,6 +312,9 @@ function startSilenceDetection(stream){
 
     const dataArray = new Uint8Array(analyser.fftSize);
 
+    let silenceStartedAt = null;
+    let hasDetectedVoice = false;
+
     silenceCheckInterval = setInterval(() => {
         analyser.getByteTimeDomainData(dataArray);
 
@@ -289,6 +329,30 @@ function startSilenceDetection(stream){
         const volumePercent = Math.min(100, Math.round(volume * 500));
 
         volumeMeter.style.width = volumePercent + '%';
+
+        const now = Date.now();
+        const recordingDuration = now - recordingStartedAt;
+
+        if(volume > SILENCE_THRESHOLD){
+            hasDetectedVoice = true;
+            silenceStartedAt = null;
+        }else{
+            if(hasDetectedVoice){
+                if(!silenceStartedAt){
+                    silenceStartedAt = now;
+                }else if(
+                    now - silenceStartedAt > SILENCE_STOP_DELAY_MS &&
+                    recordingDuration > MIN_RECORDING_TIME_MS
+                ){
+                    stopRecording('Auto stop complete.');
+                }
+            }
+        }
+
+        if(recordingDuration > MAX_RECORDING_TIME_MS){
+            stopRecording('Maximum recording length reached.');
+        }
+
     }, 100);
 }
 
@@ -296,6 +360,11 @@ function stopSilenceDetection(){
     if(silenceCheckInterval){
         clearInterval(silenceCheckInterval);
         silenceCheckInterval = null;
+    }
+
+    if(maxRecordingTimeout){
+        clearTimeout(maxRecordingTimeout);
+        maxRecordingTimeout = null;
     }
 
     if(sourceNode){
@@ -521,4 +590,3 @@ downloadReturnBtn.addEventListener('click', async () => {
 
 </body>
 </html>
-
