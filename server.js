@@ -5,13 +5,9 @@ const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 
-
-
-
-
 const app = express();
-app.use('/chords', express.static(path.join(__dirname, 'chords')));
 
+app.use('/chords', express.static(path.join(__dirname, 'chords')));
 
 const isWindows = process.platform === 'win32';
 
@@ -34,13 +30,9 @@ const chordFolder = path.join(__dirname, 'chords');
 const PREVIEW_TAG = path.join(masterFolder, 'preview_tag.wav');
 
 const NAME_START_MS = 57732;
-const CHORD_START_MS = 56380;
-const CHORD_DURATION_SECONDS = 8;
-
 const NAME_GAIN = 1.7;
 const CHORD_GAIN = 0.06;
 const MASTER_GAIN = 1.0;
-const END_TAIL_SECONDS = 1.5;
 
 const MIN_NAME_SECONDS = 0.4;
 const MAX_NAME_SECONDS = 6.0;
@@ -157,6 +149,22 @@ function makeCleanDownloadName(internalFilename) {
     }
 
     return `Happy-Birthday-${cleanName}.mp3`;
+}
+
+function parseInsertionPoints(rawValue) {
+    if (!rawValue) {
+        return [NAME_START_MS];
+    }
+
+    const points = String(rawValue)
+        .split(',')
+        .map(value => value.trim())
+        .filter(Boolean)
+        .map(value => Math.round(parseFloat(value) * 1000))
+        .filter(value => Number.isFinite(value) && value >= 0)
+        .slice(0, 3);
+
+    return points.length ? points : [NAME_START_MS];
 }
 
 function runCommand(command, args, label) {
@@ -348,20 +356,48 @@ function mixNameWithChordFile(
     nameAudio,
     chordFile,
     outputFile,
-    finalDuration,
     settings
 ) {
-    console.log('*** USING TEMPLATE FINAL MIX ENGINE ***');
+    console.log('*** USING TEMPLATE FINAL MIX ENGINE - MULTI NAME INSERT ***');
 
-    const nameStartMs = settings.nameStartMs;
-    const chordStartMs = settings.chordStartMs;
+    const insertionPointsMs = settings.insertionPointsMs;
+    const firstNameStartMs = insertionPointsMs[0];
+
+    const chordStartMs = Math.max(
+        0,
+        firstNameStartMs - 1352
+    );
+
     const nameGain = settings.nameGain;
     const chordGain = settings.chordGain;
     const masterGain = settings.masterGain;
 
-    const fadeStart = Math.max(
-        0,
-        finalDuration - 0.7
+    const filterParts = [];
+
+    filterParts.push(
+        `[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${masterGain}[master]`
+    );
+
+    insertionPointsMs.forEach((pointMs, index) => {
+        filterParts.push(
+            `[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,adelay=${pointMs}|${pointMs},volume=${nameGain}[name${index}]`
+        );
+    });
+
+    filterParts.push(
+        `[2:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${chordGain},afade=t=in:st=0:d=0.15,afade=t=out:st=5.3:d=2.7,adelay=${chordStartMs}|${chordStartMs}[chord]`
+    );
+
+    const mixInputs = [
+        '[master]',
+        ...insertionPointsMs.map((_, index) => `[name${index}]`),
+        '[chord]'
+    ].join('');
+
+    const inputCount = insertionPointsMs.length + 2;
+
+    filterParts.push(
+        `${mixInputs}amix=inputs=${inputCount}:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[out]`
     );
 
     return runCommand(
@@ -379,23 +415,10 @@ function mixNameWithChordFile(
             chordFile,
 
             '-filter_complex',
-            [
-                `[0:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${masterGain}[master]`,
-
-                `[1:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,adelay=${nameStartMs}|${nameStartMs},volume=${nameGain}[name]`,
-
-                `[2:a]aresample=48000,aformat=sample_fmts=s16:channel_layouts=mono,volume=${chordGain},afade=t=in:st=0:d=0.15,afade=t=out:st=5.3:d=2.7,adelay=${chordStartMs}|${chordStartMs}[chord]`,
-
-                '[master][name][chord]amix=inputs=3:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[mixed]',
-
-                `[mixed]afade=t=out:st=${fadeStart}:d=0.7[out]`
-            ].join(';'),
+            filterParts.join(';'),
 
             '-map',
             '[out]',
-
-            '-t',
-            finalDuration.toString(),
 
             '-acodec',
             'libmp3lame',
@@ -544,24 +567,13 @@ app.post(
                 req.body.nameChord || 'D_major.wav'
             );
 
-
-            console.log('REQ BODY:', req.body);
             console.log('Selected master from request:', req.body.masterSong);
             console.log('Selected chord from request:', req.body.nameChord);
             console.log('Selected master full path:', selectedMasterSong);
             console.log('Selected chord full path:', selectedChordFile);
 
-
-
-            
-            const nameStartMs = req.body.insertionPoint
-                ? Math.round(parseFloat(req.body.insertionPoint) * 1000)
-                : NAME_START_MS;
-
-            const chordStartMs = Math.max(
-                0,
-                nameStartMs - 1352
-            );
+            const insertionPointsMs =
+                parseInsertionPoints(req.body.insertionPoint);
 
             const nameGain = req.body.nameGain
                 ? parseFloat(req.body.nameGain)
@@ -575,12 +587,7 @@ app.post(
                 ? parseFloat(req.body.masterGain)
                 : MASTER_GAIN;
 
-            console.log('Selected master from request:', req.body.masterSong);
-            console.log('Selected chord from request:', req.body.nameChord);
-            console.log('Selected master full path:', selectedMasterSong);
-            console.log('Selected chord full path:', selectedChordFile);
-            console.log('Name start ms:', nameStartMs);
-            console.log('Chord start ms:', chordStartMs);
+            console.log('Insertion points ms:', insertionPointsMs);
             console.log('Name gain:', nameGain);
             console.log('Chord gain:', chordGain);
             console.log('Master gain:', masterGain);
@@ -655,20 +662,13 @@ app.post(
                 volumeInfo
             );
 
-            const finalDuration =
-                (nameStartMs / 1000) +
-                nameDuration +
-                END_TAIL_SECONDS;
-
             await mixNameWithChordFile(
                 selectedMasterSong,
                 cleanWavPath,
                 selectedChordFile,
                 finalPath,
-                finalDuration,
                 {
-                    nameStartMs,
-                    chordStartMs,
+                    insertionPointsMs,
                     nameGain,
                     chordGain,
                     masterGain
@@ -796,3 +796,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
