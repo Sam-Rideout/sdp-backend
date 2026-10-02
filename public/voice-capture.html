@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Project X — Tier 1 Voice Capture</title>
+<style>
+  :root { color-scheme:dark; --bg:#3b4148; --panel:#30363d; --text:#f0e9e3; --muted:#d1cbc5; --blue:#9bcfff; --red:#ffb4ab; --line:#717982; --green:#a9e2c0; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom)); background:var(--bg); color:var(--text); font:16px/1.5 Arial,Helvetica,sans-serif; }
+  .shell { width:100%; max-width:720px; margin:0 auto; }
+  header,.card { border:1px solid var(--line); border-radius:16px; background:var(--panel); }
+  header { padding:18px; margin-bottom:14px; }
+  .brand { margin:0 0 6px; color:var(--muted); font-weight:bold; font-size:12px; letter-spacing:.08em; }
+  h1 { margin:4px 0 10px; font-size:25px; line-height:1.2; }
+  h2 { margin:0 0 10px; font-size:19px; }
+  p { margin:0 0 12px; }
+  .muted { color:var(--muted); }
+  .card { padding:16px; margin-bottom:14px; }
+  .notice { padding:12px; border:1px solid var(--line); border-radius:10px; white-space:pre-wrap; }
+  .draft { color:#ffe0a6; font-weight:bold; }
+  label { display:block; margin:12px 0; }
+  input[type=checkbox] { width:20px; height:20px; vertical-align:middle; margin-right:8px; }
+  select,button { min-height:46px; border-radius:10px; font:inherit; }
+  select { width:100%; padding:8px 10px; border:1px solid var(--line); background:#242a30; color:var(--text); }
+  button { width:100%; border:0; padding:10px 14px; font-weight:bold; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .primary { color:#142a3d; background:var(--blue); }
+  .danger { color:#381713; background:var(--red); }
+  .quiet { color:var(--text); border:1px solid var(--line); background:transparent; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .status { min-height:26px; margin:8px 0; overflow-wrap:anywhere; }
+  .good { color:var(--green); }
+  .prompt { padding:14px; border-radius:12px; background:#242a30; }
+  .prompt strong { display:block; margin-bottom:6px; }
+  #instructions { display:block; white-space:pre-wrap; }
+  .progress { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  #timer { flex:0 0 auto; font-variant-numeric:tabular-nums; }
+  audio { width:100%; margin:8px 0; }
+  .take-list { margin:8px 0 0; padding-left:20px; color:var(--muted); }
+  .help { font-size:13px; color:var(--muted); }
+  [hidden] { display:none!important; }
+  @media(max-width:460px) { .row { grid-template-columns:1fr; } header,.card { padding:14px; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <p class="brand">PROJECT X · VOICE CAPTURE · TIER 1</p>
+    <h1>Voice recording session</h1>
+    <p class="muted">Record each section as its own clip. You can make more than one take; earlier takes stay available. Record dry voice only, with no music or effects, in a quiet room. Keep a steady microphone distance and sing naturally without straining. Mistakes are fine: pause, breathe, and repeat the phrase.</p>
+    <p id="account" class="status" role="status" aria-live="polite">Checking your member sign-in…</p>
+  </header>
+
+  <section id="startCard" class="card" hidden>
+    <h2>Your recording sessions</h2>
+    <p class="muted">You can resume an open session from another device after signing in to the same Project X account.</p>
+    <div id="existingWrap" hidden>
+      <label for="sessions">Continue a session</label>
+      <select id="sessions"></select>
+      <button id="resume" class="quiet" type="button">Open selected session</button>
+      <hr>
+    </div>
+    <p id="consentDraft" class="draft">Consent notice is a draft. Replace it with approved wording before inviting participants.</p>
+    <p id="consentNotice" class="notice"></p>
+    <label><input id="consent" type="checkbox">I have read this notice and agree to the recording and use described above.</label>
+    <button id="create" class="primary" type="button" disabled>Start a new session</button>
+    <p id="setupBlock" class="help" hidden>New sessions are disabled until the prompts and consent wording have been approved in the server configuration.</p>
+  </section>
+
+  <main id="captureCard" class="card" hidden>
+    <div class="progress">
+      <h2 id="sectionTitle">Section</h2>
+      <span id="timer">00:00</span>
+    </div>
+    <p id="sessionLabel" class="muted"></p>
+    <label for="sectionSelect">Choose a section</label>
+    <select id="sectionSelect"></select>
+    <div class="prompt" style="margin-top:12px">
+      <strong id="promptTitle"></strong>
+      <span id="instructions"></span>
+    </div>
+    <p id="sectionStatus" class="status" role="status" aria-live="polite"></p>
+    <p class="help">Plan for about 10–20 minutes. One pass takes about 10 minutes; for a stronger profile, repeat at least three sections twice.</p>
+    <div class="row">
+      <button id="record" class="primary" type="button">Record a take</button>
+      <button id="stop" class="danger" type="button" disabled>Stop recording</button>
+    </div>
+    <div id="review" hidden>
+      <p class="good">Take ready. Listen before saving.</p>
+      <audio id="playback" controls preload="metadata" aria-label="Listen to this take"></audio>
+      <button id="saveTake" class="primary" type="button">Save this take</button>
+    </div>
+    <h2 style="margin-top:18px">Saved takes for this section</h2>
+    <ul id="takeList" class="take-list"></ul>
+    <p class="help">Keep the page open while recording and saving. A take is not stored until Save this take finishes.</p>
+    <div class="row" style="margin-top:16px">
+      <button id="finish" class="quiet" type="button">Finish this session</button>
+      <button id="logout" class="quiet" type="button">Sign out of recorder</button>
+    </div>
+  </main>
+  <p id="globalStatus" class="status" role="alert" aria-live="assertive"></p>
+</div>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+let config = null, activeSession = null, mediaRecorder = null, stream = null;
+let chunks = [], takeBlob = null, takeUrl = null, startedAt = 0, takeDuration = 0, tick = null, busy = false;
+
+function setStatus(message, target='globalStatus') { $(target).textContent = message || ''; }
+async function api(url, options={}) {
+  const response = await fetch(url, { credentials:'same-origin', ...options });
+  const type = response.headers.get('content-type') || '';
+  const result = type.includes('application/json') ? await response.json() : null;
+  if (!response.ok) throw new Error(result?.error || `Request failed (${response.status}).`);
+  return result;
+}
+function csrfHeaders() { return { 'Content-Type':'application/json' }; }
+function durationLabel(seconds) { const n=Math.max(0,Math.round(seconds||0)); return `${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`; }
+function sessionTakes(section) { return activeSession?.sections?.[String(section)]?.takes || []; }
+function configuredSections() { return (config?.sections || []).filter(section=>section.configured); }
+function releaseMic() { if(stream){stream.getTracks().forEach(track=>track.stop());stream=null;} }
+function clearTick() { if(tick){clearInterval(tick);tick=null;} }
+
+function renderSections(selectedId=Number($('sectionSelect').value||1)) {
+  const menu=$('sectionSelect'); const sections=config.sections; menu.innerHTML='';
+  for(const section of sections) {
+    const option=document.createElement('option'); option.value=section.id;
+    const count=sessionTakes(section.id).length;
+    option.textContent=`${section.id}. ${section.title}${section.configured?` · ${count} saved take${count===1?'':'s'}`:' · prompt pending'}`;
+    option.disabled=!section.configured; menu.appendChild(option);
+  }
+  const next=sections.find(item=>item.id===selectedId&&item.configured)||configuredSections()[0];
+  if(next){menu.value=String(next.id); showSection(next.id);}
+}
+
+function showSection(id) {
+  const section=config.sections.find(item=>item.id===Number(id));
+  if(!section||!section.configured) return;
+  $('sectionTitle').textContent=`Section ${section.id} of ${config.sections.length}`;
+  $('promptTitle').textContent=section.title;
+  $('instructions').textContent=section.instructions;
+  $('sectionStatus').textContent=`${sessionTakes(section.id).length} saved take${sessionTakes(section.id).length===1?'':'s'} for this section.`;
+  $('takeList').innerHTML='';
+  for(const take of sessionTakes(section.id)) {
+    const item=document.createElement('li');
+    item.textContent=`Take ${take.take} · ${durationLabel(take.duration_seconds)} · saved`;
+    $('takeList').appendChild(item);
+  }
+  $('record').disabled=activeSession.status!=='RECORDING'||busy;
+  $('finish').disabled=activeSession.status!=='RECORDING';
+}
+
+async function refreshSessions() {
+  const data=await api('/api/sessions'); const sessions=data.sessions||[];
+  const wrap=$('existingWrap'), select=$('sessions'); select.innerHTML='';
+  const resumable=sessions.filter(item=>['RECORDING','READY_FOR_TRANSFER'].includes(item.status));
+  if(resumable.length) {
+    wrap.hidden=false;
+    for(const item of resumable){const option=document.createElement('option'); option.value=item.session_id; option.textContent=`${new Date(item.created_at).toLocaleString()} · ${item.status.replaceAll('_',' ')}`; select.appendChild(option);}
+  } else wrap.hidden=true;
+  $('startCard').hidden=false;
+}
+
+async function selectSession(id) {
+  const data=await api(`/api/sessions/${encodeURIComponent(id)}`); activeSession=data.session;
+  $('startCard').hidden=true; $('captureCard').hidden=false;
+  $('sessionLabel').textContent=`Session ${activeSession.session_id} · ${activeSession.status.replaceAll('_',' ')}`;
+  renderSections();
+  if(activeSession.status!=='RECORDING'){
+    $('sectionStatus').textContent='This session is complete and waiting for verified transfer to the Project X library.';
+    $('sectionSelect').disabled=true; $('record').disabled=true; $('finish').disabled=true;
+  } else {$('sectionSelect').disabled=false;}
+}
+
+async function initialize() {
+  try {
+    const hash=new URLSearchParams(location.hash.slice(1)); const ticket=hash.get('ticket');
+    if(ticket){history.replaceState(null,'',location.pathname); await api('/api/session/exchange',{method:'POST',headers:csrfHeaders(),body:JSON.stringify({ticket})});}
+    config=await api('/api/config');
+    $('consentNotice').textContent=config.consent_notice;
+    $('consentDraft').hidden=!config.consent_draft;
+    if(!config.capture_enabled) $('setupBlock').textContent=config.consent_draft
+      ? 'New sessions are disabled until the consent wording and all eight section prompts are approved.'
+      : 'New sessions are disabled until all eight section prompts are configured.';
+    $('setupBlock').hidden=config.capture_enabled;
+    $('consent').addEventListener('change',()=>{$('create').disabled=!config.capture_enabled||!$('consent').checked;});
+    $('create').disabled=!config.capture_enabled;
+    $('create').addEventListener('click',async()=>{
+      $('create').disabled=true; setStatus('Creating your session…','account');
+      try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify({consent:true,consent_version:config.consent_version})});await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
+      catch(error){setStatus(error.message);$('create').disabled=!$('consent').checked;}
+    });
+    await refreshSessions();
+    $('account').textContent='Signed in to Project X.';
+    $('resume').addEventListener('click',async()=>{try{await selectSession($('sessions').value);}catch(error){setStatus(error.message);}});
+    $('sectionSelect').addEventListener('change',()=>showSection($('sectionSelect').value));
+    $('record').addEventListener('click',startRecording);
+    $('stop').addEventListener('click',()=>stopRecording(false));
+    $('saveTake').addEventListener('click',saveTake);
+    $('finish').addEventListener('click',finishSession);
+    $('logout').addEventListener('click',async()=>{await api('/api/session/logout',{method:'POST'});location.reload();});
+  }catch(error){$('account').textContent=error.message; if(error.message.includes('Sign in')) $('account').textContent='Open this recorder from the signed-in Project X member page.';}
+}
+
+async function startRecording() {
+  if(busy||!activeSession||activeSession.status!=='RECORDING')return;
+  if(takeBlob&&!confirm('Discard the unsaved take and record a new one?'))return;
+  busy=true; $('record').disabled=true; $('stop').disabled=true; $('review').hidden=true; setStatus('Opening microphone…','sectionStatus');
+  try{
+    if(self!==top)throw new Error('Open this recorder directly in the browser, not inside a frame.');
+    if(!isSecureContext)throw new Error('Microphone recording requires HTTPS.');
+    if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error('Recording is not supported in this browser.');
+    stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:{ideal:1},echoCancellation:{ideal:false},noiseSuppression:{ideal:false},autoGainControl:{ideal:false}},video:false});
+    const types=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'];
+    const mimeType=types.find(type=>MediaRecorder.isTypeSupported(type));
+    mediaRecorder=mimeType?new MediaRecorder(stream,{mimeType}):new MediaRecorder(stream);
+    chunks=[]; mediaRecorder.ondataavailable=event=>{if(event.data?.size)chunks.push(event.data);};
+    mediaRecorder.onerror=()=>stopRecording(true);
+    mediaRecorder.onstop=()=>{
+      releaseMic();clearTick();busy=false;$('stop').disabled=true;
+      const blob=new Blob(chunks,{type:mediaRecorder.mimeType||chunks[0]?.type||'audio/webm'});chunks=[];
+      if(!blob.size){setStatus('No audio was recorded. Please try again.','sectionStatus');$('record').disabled=false;return;}
+      takeBlob=blob; takeDuration=(Date.now()-startedAt)/1000; if(takeUrl)URL.revokeObjectURL(takeUrl);takeUrl=URL.createObjectURL(blob);
+      $('playback').src=takeUrl;$('review').hidden=false;$('record').disabled=false;
+      setStatus(`Take ready (${durationLabel((Date.now()-startedAt)/1000)}). Listen, then save it.`, 'sectionStatus');
+    };
+    startedAt=Date.now(); mediaRecorder.start(1000); $('timer').textContent='00:00';
+    tick=setInterval(()=>{const sec=Math.floor((Date.now()-startedAt)/1000);$('timer').textContent=durationLabel(sec);if(sec>=300)stopRecording(false);},250);
+    $('stop').disabled=false;setStatus('Recording… tap Stop when you finish this take.','sectionStatus');
+  }catch(error){releaseMic();clearTick();busy=false;$('record').disabled=false;$('stop').disabled=true;setStatus(error.name==='NotAllowedError'?'Microphone permission was blocked. Allow it in browser settings and try again.':error.message,'sectionStatus');}
+}
+
+function stopRecording(interrupted) {
+  if(!mediaRecorder||mediaRecorder.state==='inactive')return;
+  $('stop').disabled=true;setStatus(interrupted?'Recording interrupted; preparing the take…':'Preparing your take…','sectionStatus');
+  try{mediaRecorder.stop();}catch(error){releaseMic();clearTick();busy=false;$('record').disabled=false;setStatus('Could not finish the recording. Please try again.','sectionStatus');}
+}
+
+async function saveTake() {
+  if(!takeBlob||busy)return;
+  busy=true;$('saveTake').disabled=true;setStatus('Uploading and saving this take…','sectionStatus');
+  try{
+    const form=new FormData();form.append('section',$('sectionSelect').value);form.append('duration_seconds',String(takeDuration));
+    const ext=takeBlob.type.includes('mp4')?'m4a':takeBlob.type.includes('ogg')?'ogg':takeBlob.type.includes('wav')?'wav':'webm';
+    form.append('audio',takeBlob,`recording.${ext}`);
+    const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/clips`,{method:'POST',body:form});
+    activeSession=data.session;takeBlob=null;if(takeUrl){URL.revokeObjectURL(takeUrl);takeUrl=null;} $('playback').removeAttribute('src');$('playback').load();$('review').hidden=true;
+    showSection($('sectionSelect').value);renderSections(Number($('sectionSelect').value));setStatus(`Saved as take ${data.clip.take}. You can record another take or choose another section.`, 'sectionStatus');
+  }catch(error){setStatus(error.message,'sectionStatus');}
+  finally{busy=false;$('saveTake').disabled=false;$('record').disabled=activeSession.status!=='RECORDING';}
+}
+
+async function finishSession() {
+  if(!confirm('Finish this session? You will no longer be able to add recordings to it.'))return;
+  $('finish').disabled=true;
+  try{const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/complete`,{method:'POST'});activeSession=data.session;await selectSession(activeSession.session_id);setStatus('Session marked ready for verified transfer.','sectionStatus');}
+  catch(error){setStatus(error.message,'sectionStatus');$('finish').disabled=false;}
+}
+
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&mediaRecorder?.state==='recording')stopRecording(true);});
+window.addEventListener('pagehide',()=>{if(mediaRecorder?.state==='recording')stopRecording(true);releaseMic();clearTick();if(takeUrl)URL.revokeObjectURL(takeUrl);});
+initialize();
+</script>
+</body>
+</html>

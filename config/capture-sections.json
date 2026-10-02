@@ -1,0 +1,47 @@
+{
+  "schema_version": "PX-TIER1-CAPTURE-PROMPTS-1.0.0",
+  "consent_version": "draft-2026-10-02",
+  "consent_notice": "DRAFT — I give permission for Project X to record and use these voice samples to create and maintain the voice profile I requested for Project X song conversion. The recordings are temporarily stored on the capture service while they are transferred to and verified in Project X's local master library. Audio files on the capture service are deleted after that verification. The local master library may retain the recordings for future work covered by my consent. I can contact Project X to ask questions or withdraw consent.",
+  "sections": [
+    {
+      "id": 1,
+      "title": "0:00–1:00 · Sustained vowels",
+      "instructions": "Start on a comfortable middle note. Hold each sound for about 3 seconds:\nAh · Eh · Ee · Oh · Oo\nMove slightly lower and repeat Ah · Ee · Oh · Oo. Move slightly higher and sing Ah · Ee, then finish with Ah and Oh using natural vibrato. Keep the holds near 3 seconds, take short breaths, and do not force high notes."
+    },
+    {
+      "id": 2,
+      "title": "1:00–2:15 · Smooth scales",
+      "instructions": "Sing each line smoothly on the five-note pattern up and down:\n1–2–3–4–5–4–3–2–1\nAh · ah · ah · ah · ah · ah · ah · ah · ah\nEe · ee · ee · ee · ee · ee · ee · ee · ee\nOh · oh · oh · oh · oh · oh · oh · oh · oh\nNay · nay · nay · nay · nay · nay · nay · nay · nay\nRepeat the four lines once a little higher, then once a little lower. Use a steady, comfortable tempo; each pass should take about 20–25 seconds."
+    },
+    {
+      "id": 3,
+      "title": "2:15–3:15 · Arpeggios and pitch jumps",
+      "instructions": "Sing a wider pattern: low · middle · high · highest · high · middle · low. Use each sound:\nAh · ah · ah · ah · ah · ah · ah\nHey · hey · hey · hey · hey · hey · hey\nMum · mum · mum · mum · mum · mum · mum\nThen make clear, comfortable jumps:\nLow AH · high AH · low AH\nLow EE · high EE · low EE\nLow OH · high OH · low OH\nHey · HEEEEY · hey\nMove continuously through the patterns. Use comfortable high notes, not your absolute limit."
+    },
+    {
+      "id": 4,
+      "title": "3:15–5:30 · Phonetic singing",
+      "instructions": "Sing these as real melodic lines, not spoken sentences. Make up a simple, comfortable melody. Aim for about 7–8 seconds per line and leave a natural breath between phrases.\n\nBaby, bring the daylight back to me.\nTake another road and tell me where you've been.\nGolden skies are shining through the rain.\nSweet summer winds are moving through the trees.\nCharlie chased a shadow through the night.\nEvery little memory stays with me.\nSing it softly, sing it strong and clear.\nHold me close and never let me go.\nWalking down the road beneath the moon.\nBright blue morning, burning through the gray.\nWhisper every word and sing it true.\nI can hear you calling me back home.\n\nNow repeat the final four lines with a different melody."
+    },
+    {
+      "id": 5,
+      "title": "5:30–6:45 · Soft, normal and strong voice",
+      "instructions": "Sing this line in each style:\nI can hear the river calling my name.\nSoftly · normally · strongly · softly with natural vibrato · strongly with natural vibrato · smooth and connected · short and rhythmic\n\nThen sing “Stay with me tonight” once low, once in your normal range, and once in your comfortable upper range. Do not rush; make each version clearly different."
+    },
+    {
+      "id": 6,
+      "title": "6:45–7:45 · Fast words and articulation",
+      "instructions": "Sing these at a moderately fast tempo:\nRunning down the highway with the radio playing,\neverybody's talking but I don't hear what they're saying.\nTurn another corner, see the morning light,\nwe're gonna keep on moving through the middle of the night.\n\nRepeat the four lines once using a different melody or rhythm. Accuracy matters more than speed. Allow about 25 seconds per pass and use any remaining time to repeat a difficult line cleanly."
+    },
+    {
+      "id": 7,
+      "title": "7:45–8:45 · Attacks, consonants and short notes",
+      "instructions": "Sing these as short rhythmic phrases:\nBa · ba · ba · ba · baby\nPa · pa · pa · pa · paper\nDa · da · da · da · daylight\nTa · ta · ta · ta · take me\nGa · ga · ga · ga · going\nKa · ka · ka · ka · carry\nFa · fa · fa · fa · falling\nVa · va · va · va · valley\n\nThen sing:\nMee · may · mah · moh · moo\nNee · nay · nah · noh · noo\nLee · lay · lah · loh · loo\n\nKeep the notes short and clear. Do not over-pronounce; use your normal singing voice."
+    },
+    {
+      "id": 8,
+      "title": "8:45–10:00 · Natural singing",
+      "instructions": "Stop doing exercises and sing naturally as though recording a real song:\nAbout 25 seconds · comfortable verse voice\nAbout 25 seconds · stronger chorus voice\nAbout 15 seconds · comfortable upper singing voice\nUse the remaining time to sing whatever makes you sound most recognizably like yourself. You may improvise your own words or sing these original Project X lines:\n\nI've been walking through the changes,\nI've been waiting for the sun.\nEvery road became a memory,\nevery ending had begun.\nSo carry me home through the darkness,\ncarry me home through the storm."
+    }
+  ]
+}

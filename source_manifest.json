@@ -1,0 +1,33 @@
+{
+    "artifact":  "Project X Tier 1 segmented voice-capture review build",
+    "repository":  "Sam-Rideout/sdp-backend",
+    "branch":  "main",
+    "base_commit":  "b27c2dae02b41f91c2aa94763a804795104fa768",
+    "generated_date":  "2026-10-02",
+    "render_build_command":  "npm install",
+    "render_start_command":  "node server.js",
+    "included_files_sha256":  {
+                                  "Aptfile":  "4882fc290554099a31c425278a43ac361528b594a12d67532aafdd5d7d13400a",
+                                  "package.json":  "7e4a34fffdd3078ceac2be19af7e11de228790d0112e032b522a01244dd7a51d",
+                                  "package-lock.json":  "47bdbbecaa21612ba6740c58c2f91ab79bf81f6a158bbf1c1ce9223e862130b7",
+                                  "render-build.sh":  "dfeb8633be20d8bba2ac07cada0658b15c12a7fb5fcabe3828a1440689161895",
+                                  "server.js":  "c09b54b2a2bd9ab03f1ff68b3bcc647f4890b41b6918d4d65bfba89791f08c05",
+                                  "public/index.html":  "bfcd7e363bc14a2dfddadfd3b94f41fbce77245aacfbc4dc9bf14600f189b58a",
+                                  "public/voice-capture.html":  "b8d2545af7b5a8ba23d3e6ad98bb05c5e4479d90d1a1f7e052817bfe89b6e1d0",
+                                  "config/capture-sections.json":  "a48e28964b0257be54cb4dc950a6be011f29a46abcff097abe206d5d9c93d03b",
+                                  "wix/voiceCapture.web.js":  "931eac9ba7b8cbdaef091a0c451ff230aed4e76128ee7097dcc4c72ea87cf981",
+                                  "wix/START_BUTTON_PAGE_CODE.txt":  "ba8ee49949a5c9353db65ca7aca0159e897a2f084339f31f181d3f88776833a0",
+                                  "tools/transfer_voice_session.py":  "9e8e73fcfce7a9cb228ae5a37e9c3a949988b6329b1b1c66f1a94cbdfbc7e56a",
+                                  "test/voice-capture.test.js":  "bb7b26274267cfe296ee8c9520e51bf9051950f16b41393db688e2beb46386fe",
+                                  "README_TIER1_CAPTURE.md":  "f7f455d941d1de590aedd8b96bf39b433e04d209a08cd901cfbd6ce52b2e5eff",
+                                  "README_SOURCE.txt":  "47625031ab9c12b186df19b42c491aef6447eb9f42d2db5e78a20c62ac6888b9"
+                              },
+    "excluded":  [
+                     ".git",
+                     "node_modules",
+                     "runtime recordings",
+                     "user audio",
+                     "environment secrets",
+                     "Python bytecode"
+                 ]
+}

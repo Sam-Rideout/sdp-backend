@@ -1,0 +1,22 @@
+// Wix Studio page code for the existing Start / Resume recording button.
+// 1) Change #startRecordingButton below to the button's actual Wix element ID.
+// 2) Keep CAPTURE_URL set to the direct Render /voice-capture address.
+// 3) Import the backend web method from backend/voiceCapture.web.js.
+
+import wixLocationFrontend from 'wix-location-frontend';
+import { issueVoiceCaptureTicket } from 'backend/voiceCapture.web';
+
+const CAPTURE_URL = 'https://sdp-backend-6xt6.onrender.com/voice-capture';
+
+$w.onReady(() => {
+  $w('#startRecordingButton').onClick(async () => {
+    $w('#startRecordingButton').disable();
+    try {
+      const { ticket } = await issueVoiceCaptureTicket();
+      wixLocationFrontend.to(`${CAPTURE_URL}#ticket=${encodeURIComponent(ticket)}`);
+    } catch (error) {
+      console.error('Could not open the voice capture page:', error);
+      $w('#startRecordingButton').enable();
+    }
+  });
+});
