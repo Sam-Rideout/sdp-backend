@@ -50,6 +50,13 @@ test('recording page shows exactly three unselected consent checkboxes', () => {
   assert.match(page, /id="finishStandard"/);
   assert.match(page, /function allSectionsHaveTakes\(\)/);
   assert.match(page, /function updateFinishStandard\(\)/);
+  assert.match(page, /id="savedTakeSelect"/);
+  assert.match(page, /id="deleteSavedTake"/);
+  assert.match(page, /async function deleteSavedTake\(\)/);
+  assert.match(page, /WHITE · STANDARD = 0 saved takes/);
+  assert.match(page, /YELLOW = 1 saved take/);
+  assert.match(page, /GREEN = 2 or more saved takes/);
+  assert.match(page, /function sectionFlag\(count\)/);
   assert.match(page, /consentDocument[\s\S]*href="\/consent"/);
 });
 
@@ -182,10 +189,64 @@ test('authenticated member saves separate takes and transfer verification gates 
     uploadedClips.push({ ...uploaded.clip, audio });
   }
 
+  const firstTake = uploadedClips[0];
+  const secondAudio = Buffer.from('second take for section 1');
+  const secondForm = new FormData();
+  secondForm.append('section', '1');
+  secondForm.append('duration_seconds', '3');
+  secondForm.append('audio', new Blob([secondAudio], { type: 'audio/webm' }), 'section-1-take-2.webm');
+  const secondResponse = await fetch(`${base}/api/sessions/${session.session_id}/clips`, {
+    method: 'POST', headers: { origin: base, cookie }, body: secondForm
+  });
+  assert.equal(secondResponse.status, 201);
+  const secondUpload = await secondResponse.json();
+  assert.equal(secondUpload.clip.take, 2);
+  const secondTake = { ...secondUpload.clip, audio: secondAudio };
+
+  await postTicket('test-member-002');
+  const wrongOwnerDelete = await fetch(`${base}/api/sessions/${session.session_id}/clips/${firstTake.clip_id}`, {
+    method: 'DELETE', headers: { origin: base, cookie }
+  });
+  assert.equal(wrongOwnerDelete.status, 404, 'a different member cannot delete another member\'s take');
+  await postTicket('test-member-001');
+
+  const unauthenticatedDelete = await fetch(`${base}/api/sessions/${session.session_id}/clips/${firstTake.clip_id}`, {
+    method: 'DELETE', headers: { origin: base }
+  });
+  assert.equal(unauthenticatedDelete.status, 401, 'take deletion requires member authentication');
+
+  const firstFile = path.join(testRoot, 'data', 'sessions', session.session_id, firstTake.relative_path);
+  const deleteResponse = await fetch(`${base}/api/sessions/${session.session_id}/clips/${firstTake.clip_id}`, {
+    method: 'DELETE', headers: { origin: base, cookie }
+  });
+  assert.equal(deleteResponse.status, 200);
+  const deleted = await deleteResponse.json();
+  assert.equal(deleted.deleted_clip_id, firstTake.clip_id);
+  assert.deepEqual(deleted.session.sections['1'].takes.map(item => item.clip_id), [secondTake.clip_id]);
+  await assert.rejects(fs.access(firstFile), { code: 'ENOENT' }, 'deleted audio is removed from live storage');
+
+  const thirdAudio = Buffer.from('third take for section 1 after deleting take 1');
+  const thirdForm = new FormData();
+  thirdForm.append('section', '1');
+  thirdForm.append('duration_seconds', '3.5');
+  thirdForm.append('audio', new Blob([thirdAudio], { type: 'audio/webm' }), 'section-1-take-3.webm');
+  const thirdResponse = await fetch(`${base}/api/sessions/${session.session_id}/clips`, {
+    method: 'POST', headers: { origin: base, cookie }, body: thirdForm
+  });
+  assert.equal(thirdResponse.status, 201);
+  const thirdUpload = await thirdResponse.json();
+  assert.equal(thirdUpload.clip.take, 3, 'take numbering does not reuse an existing file name after a deletion');
+  uploadedClips.splice(0, 1, secondTake, { ...thirdUpload.clip, audio: thirdAudio });
+
   const completeResponse = await fetch(`${base}/api/sessions/${session.session_id}/complete`, {
     method: 'POST', headers: { origin: base, cookie }
   });
   assert.equal(completeResponse.status, 200);
+
+  const completedTakeDelete = await fetch(`${base}/api/sessions/${session.session_id}/clips/${uploadedClips[0].clip_id}`, {
+    method: 'DELETE', headers: { origin: base, cookie }
+  });
+  assert.equal(completedTakeDelete.status, 409, 'completed sessions cannot be changed while awaiting transfer');
 
   const auth = { authorization: `Bearer ${process.env.VOICE_TRANSFER_TOKEN}` };
   const transferResponse = await fetch(`${base}/api/transfer/sessions/${session.session_id}`, { headers: auth });

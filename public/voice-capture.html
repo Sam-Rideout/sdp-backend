@@ -42,12 +42,45 @@
   .prompt strong { display:block; margin-bottom:6px; }
   #instructions { display:block; white-space:pre-wrap; }
   .progress { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-  #timer { flex:0 0 auto; font-variant-numeric:tabular-nums; }
+  .section-flag { flex:0 0 auto; padding:5px 9px; border:1px solid var(--line); border-radius:999px; background:#242a30; font-size:12px; font-weight:bold; white-space:nowrap; }
+  .section-flag[data-state="none"] { color:#fff; border-color:#aab2bc; }
+  .section-flag[data-state="one"] { color:#ffe08a; border-color:#d1a83b; }
+  .section-flag[data-state="complete"] { color:#a9e2c0; border-color:#5bad7b; }
+  .section-flag[data-state="pending"] { color:var(--muted); background:#30363d; }
+  .flag-legend { margin:4px 0 12px; padding:10px; border:1px solid var(--line); border-radius:9px; font-size:13px; }
+  .flag-legend strong { margin-right:8px; }
+  .flag-legend .standard-key { color:#fff; }
+  .flag-legend .yellow-key { color:#ffe08a; }
+  .flag-legend .green-key { color:#a9e2c0; }
+  .recording-indicator { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:12px; margin:12px 0; padding:14px; border:2px solid var(--line); border-radius:12px; background:#242a30; }
+  .recording-indicator[data-state="recording"] { border-color:#ff6464; background:#3b2428; }
+  .recording-indicator[data-state="starting"],.recording-indicator[data-state="stopping"] { border-color:#ffd166; }
+  .recording-indicator[data-state="ready"] { border-color:var(--green); }
+  .recording-indicator[data-state="error"] { border-color:#ff6464; }
+  .recording-dot { width:17px; height:17px; flex:0 0 17px; border-radius:50%; background:#9aa3ac; }
+  [data-state="recording"] .recording-dot { background:#ff4545; box-shadow:0 0 0 4px #ff454533; animation:recording-pulse 1.2s ease-in-out infinite; }
+  [data-state="ready"] .recording-dot { background:#6dd69b; }
+  [data-state="starting"] .recording-dot,[data-state="stopping"] .recording-dot { background:#ffd166; }
+  [data-state="error"] .recording-dot { background:#ff6464; }
+  @keyframes recording-pulse { 50% { box-shadow:0 0 0 8px #ff45451a; opacity:.72; } }
+  .recording-copy strong,.recording-copy span { display:block; }
+  .recording-copy strong { font-size:17px; line-height:1.25; }
+  .recording-copy span { margin-top:3px; color:var(--muted); font-size:13px; line-height:1.35; }
+  #timer { flex:0 0 auto; font-size:20px; font-weight:bold; font-variant-numeric:tabular-nums; }
+  .audio-meter { display:flex; align-items:center; justify-content:center; gap:4px; height:30px; margin:4px 0 12px; }
+  .audio-meter span { display:block; width:8px; height:9px; border-radius:5px; background:#87919b; transition:height .08s linear,background-color .08s linear; }
+  .audio-meter span:nth-child(2),.audio-meter span:nth-child(4) { height:15px; }
+  .audio-meter span:nth-child(3) { height:22px; }
+  .audio-meter span.active { height:25px; background:#62d993; }
+  .audio-meter span.active:nth-child(n+4) { background:#ffd166; }
+  .audio-meter span.active:nth-child(5) { background:#ff7373; }
+  .meter-caption { margin:0 0 12px; color:var(--muted); font-size:12px; text-align:center; }
   audio { width:100%; margin:8px 0; }
   .take-list { margin:8px 0 0; padding-left:20px; color:var(--muted); }
   .help { font-size:13px; color:var(--muted); }
   [hidden] { display:none!important; }
   @media(max-width:460px) { .row { grid-template-columns:1fr; } header,.card { padding:14px; } }
+  @media(prefers-reduced-motion:reduce) { [data-state="recording"] .recording-dot { animation:none; } }
 </style>
 </head>
 <body>
@@ -95,17 +128,27 @@
   <main id="captureCard" class="card" hidden>
     <div class="progress">
       <h2 id="sectionTitle">Section</h2>
-      <span id="timer">00:00</span>
+      <span id="sectionFlag" class="section-flag" data-state="none">STANDARD · 0 takes</span>
     </div>
     <p id="sessionLabel" class="muted"></p>
     <label for="sectionSelect">Choose a section</label>
     <select id="sectionSelect"></select>
+    <p class="flag-legend"><strong>Section progress</strong><span class="standard-key">WHITE · STANDARD = 0 saved takes</span> · <span class="yellow-key">YELLOW = 1 saved take</span> · <span class="green-key">GREEN = 2 or more saved takes</span>. Each section dropdown option shows its status and count.</p>
     <div class="prompt" style="margin-top:12px">
       <strong id="promptTitle"></strong>
       <span id="instructions"></span>
     </div>
     <p id="sectionStatus" class="status" role="status" aria-live="polite"></p>
     <p class="help">Plan for about 10–20 minutes. One pass takes about 10 minutes; for a stronger profile, repeat at least three sections twice.</p>
+    <div id="recordingIndicator" class="recording-indicator" data-state="idle" role="status" aria-live="polite" aria-atomic="true">
+      <span class="recording-dot" aria-hidden="true"></span>
+      <div class="recording-copy"><strong id="recordingStateText">Not recording</strong><span id="recordingHelp">Choose a section, then press “Record a take” to begin.</span></div>
+      <time id="timer" aria-label="Recording time elapsed">00:00</time>
+    </div>
+    <div id="audioMeter" class="audio-meter" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <p id="meterCaption" class="meter-caption">The microphone level display activates during recording; moving bars show sound reaching the microphone.</p>
     <div class="row">
       <button id="record" class="primary" type="button">Record a take</button>
       <button id="stop" class="danger" type="button" disabled>Stop recording</button>
@@ -113,10 +156,18 @@
     <div id="review" hidden>
       <p class="good">Take ready. Listen before saving.</p>
       <audio id="playback" controls preload="metadata" aria-label="Listen to this take"></audio>
-      <button id="saveTake" class="primary" type="button">Save this take</button>
+      <div class="row">
+        <button id="saveTake" class="primary" type="button">Save this take</button>
+        <button id="discardTake" class="danger" type="button">Discard this take</button>
+      </div>
+      <p class="help">Discard removes this unsaved take from the page. It has not been uploaded.</p>
     </div>
     <h2 style="margin-top:18px">Saved takes for this section</h2>
-    <ul id="takeList" class="take-list"></ul>
+    <div id="savedTakeControls" class="row" hidden>
+      <label for="savedTakeSelect">Choose a saved take<select id="savedTakeSelect"></select></label>
+      <button id="deleteSavedTake" class="danger" type="button" disabled>Delete selected take</button>
+    </div>
+    <p id="noSavedTakes" class="muted">No saved takes for this section yet.</p>
     <p class="help">Keep the page open while recording and saving. A take is not stored until Save this take finishes.</p>
     <aside id="finishStandard" class="prompt" hidden aria-live="polite">
       <h2 id="finishStandardTitle">Finish Standard</h2>
@@ -135,6 +186,7 @@
 const $ = id => document.getElementById(id);
 let config = null, activeSession = null, mediaRecorder = null, stream = null;
 let chunks = [], takeBlob = null, takeUrl = null, startedAt = 0, takeDuration = 0, tick = null, busy = false;
+let audioContext = null, analyser = null, meterSamples = null, meterFrame = null, recordingInterrupted = false;
 
 function setStatus(message, target='globalStatus') { $(target).textContent = message || ''; }
 async function api(url, options={}) {
@@ -147,6 +199,17 @@ async function api(url, options={}) {
 function csrfHeaders() { return { 'Content-Type':'application/json' }; }
 function durationLabel(seconds) { const n=Math.max(0,Math.round(seconds||0)); return `${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`; }
 function sessionTakes(section) { return activeSession?.sections?.[String(section)]?.takes || []; }
+function sectionFlag(count) {
+  if(count===0)return {state:'none',label:'STANDARD · 0 takes'};
+  if(count===1)return {state:'one',label:'YELLOW · 1 take'};
+  return {state:'complete',label:`GREEN · ${count} takes`};
+}
+function updateSectionFlag(section) {
+  const count=sessionTakes(section.id).length;
+  const flag=section.configured?sectionFlag(count):{state:'pending',label:'PROMPT PENDING'};
+  $('sectionFlag').dataset.state=flag.state;
+  $('sectionFlag').textContent=flag.label;
+}
 function configuredSections() { return (config?.sections || []).filter(section=>section.configured); }
 function allSectionsHaveTakes() {
   return config?.sections?.length===8 && config.sections.every(section=>
@@ -162,13 +225,49 @@ function updateFinishStandard() {
 }
 function releaseMic() { if(stream){stream.getTracks().forEach(track=>track.stop());stream=null;} }
 function clearTick() { if(tick){clearInterval(tick);tick=null;} }
+function setRecordingIndicator(state, title, detail) {
+  const indicator=$('recordingIndicator');
+  indicator.dataset.state=state;
+  $('recordingStateText').textContent=title;
+  $('recordingHelp').textContent=detail;
+}
+function resetAudioMeter() {
+  if(meterFrame){cancelAnimationFrame(meterFrame);meterFrame=null;}
+  analyser=null;meterSamples=null;
+  for(const bar of $('audioMeter').children)bar.classList.remove('active');
+  if(audioContext){const context=audioContext;audioContext=null;context.close().catch(()=>{});}
+}
+function animateAudioMeter() {
+  if(!analyser||!meterSamples)return;
+  analyser.getByteTimeDomainData(meterSamples);
+  let sum=0;
+  for(const value of meterSamples){const sample=(value-128)/128;sum+=sample*sample;}
+  const level=Math.min(1,Math.sqrt(sum/meterSamples.length)*8);
+  [...$('audioMeter').children].forEach((bar,index)=>bar.classList.toggle('active',level>(index+1)*0.075));
+  meterFrame=requestAnimationFrame(animateAudioMeter);
+}
+async function startAudioMeter() {
+  try {
+    const AudioContextClass=window.AudioContext||window.webkitAudioContext;
+    if(!AudioContextClass)throw new Error('Audio level display is not supported.');
+    audioContext=new AudioContextClass();
+    const source=audioContext.createMediaStreamSource(stream);
+    analyser=audioContext.createAnalyser();analyser.fftSize=256;meterSamples=new Uint8Array(analyser.fftSize);source.connect(analyser);
+    if(audioContext.state==='suspended')await audioContext.resume();
+    animateAudioMeter();
+  } catch(error) {
+    resetAudioMeter();
+    $('meterCaption').textContent='Recording is active. The microphone level display is unavailable in this browser.';
+  }
+}
 
 function renderSections(selectedId=Number($('sectionSelect').value||1)) {
   const menu=$('sectionSelect'); const sections=config.sections; menu.innerHTML='';
   for(const section of sections) {
     const option=document.createElement('option'); option.value=section.id;
     const count=sessionTakes(section.id).length;
-    option.textContent=`${section.id}. ${section.title}${section.configured?` · ${count} saved take${count===1?'':'s'}`:' · prompt pending'}`;
+    const flag=section.configured?sectionFlag(count):{label:'PROMPT PENDING'};
+    option.textContent=`${flag.label} · Section ${section.id}: ${section.title}`;
     option.disabled=!section.configured; menu.appendChild(option);
   }
   const next=sections.find(item=>item.id===selectedId&&item.configured)||configuredSections()[0];
@@ -179,15 +278,20 @@ function showSection(id) {
   const section=config.sections.find(item=>item.id===Number(id));
   if(!section||!section.configured) return;
   $('sectionTitle').textContent=`Section ${section.id} of ${config.sections.length}`;
+  updateSectionFlag(section);
   $('promptTitle').textContent=section.title;
   $('instructions').textContent=section.instructions;
   $('sectionStatus').textContent=`${sessionTakes(section.id).length} saved take${sessionTakes(section.id).length===1?'':'s'} for this section.`;
-  $('takeList').innerHTML='';
-  for(const take of sessionTakes(section.id)) {
-    const item=document.createElement('li');
-    item.textContent=`Take ${take.take} · ${durationLabel(take.duration_seconds)} · saved`;
-    $('takeList').appendChild(item);
+  const takes=sessionTakes(section.id), takeMenu=$('savedTakeSelect');
+  takeMenu.innerHTML='';
+  for(const take of takes) {
+    const option=document.createElement('option');option.value=take.clip_id;
+    option.textContent=`Take ${take.take} · ${durationLabel(take.duration_seconds)} · saved`;
+    takeMenu.appendChild(option);
   }
+  $('savedTakeControls').hidden=takes.length===0;
+  $('noSavedTakes').hidden=takes.length>0;
+  $('deleteSavedTake').disabled=activeSession.status!=='RECORDING'||takes.length===0||busy;
   $('record').disabled=activeSession.status!=='RECORDING'||busy;
   updateFinishStandard();
 }
@@ -280,6 +384,8 @@ async function initialize() {
     $('record').addEventListener('click',startRecording);
     $('stop').addEventListener('click',()=>stopRecording(false));
     $('saveTake').addEventListener('click',saveTake);
+    $('discardTake').addEventListener('click',discardTake);
+    $('deleteSavedTake').addEventListener('click',deleteSavedTake);
     $('finish').addEventListener('click',finishSession);
     $('logout').addEventListener('click',async()=>{await api('/api/session/logout',{method:'POST'});location.reload();});
   }catch(error){$('account').textContent=error.message; if(error.message.includes('Sign in')) $('account').textContent='Open this recorder from the signed-in Project X member page.';}
@@ -288,7 +394,9 @@ async function initialize() {
 async function startRecording() {
   if(busy||!activeSession||activeSession.status!=='RECORDING')return;
   if(takeBlob&&!confirm('Discard the unsaved take and record a new one?'))return;
-  busy=true; $('record').disabled=true; $('stop').disabled=true; $('review').hidden=true; setStatus('Opening microphone…','sectionStatus');
+  busy=true; $('record').disabled=true; $('stop').disabled=true; $('review').hidden=true; $('sectionSelect').disabled=true;$('timer').textContent='00:00';
+  setRecordingIndicator('starting','Connecting to microphone','Recording has not started yet. Allow microphone access if your browser asks.');
+  setStatus('Opening microphone…','sectionStatus');
   try{
     if(self!==top)throw new Error('Open this recorder directly in the browser, not inside a frame.');
     if(!isSecureContext)throw new Error('Microphone recording requires HTTPS.');
@@ -299,38 +407,105 @@ async function startRecording() {
     mediaRecorder=mimeType?new MediaRecorder(stream,{mimeType}):new MediaRecorder(stream);
     chunks=[]; mediaRecorder.ondataavailable=event=>{if(event.data?.size)chunks.push(event.data);};
     mediaRecorder.onerror=()=>stopRecording(true);
-    mediaRecorder.onstop=()=>{
-      releaseMic();clearTick();busy=false;$('stop').disabled=true;
-      const blob=new Blob(chunks,{type:mediaRecorder.mimeType||chunks[0]?.type||'audio/webm'});chunks=[];
-      if(!blob.size){setStatus('No audio was recorded. Please try again.','sectionStatus');$('record').disabled=false;return;}
-      takeBlob=blob; takeDuration=(Date.now()-startedAt)/1000; if(takeUrl)URL.revokeObjectURL(takeUrl);takeUrl=URL.createObjectURL(blob);
-      $('playback').src=takeUrl;$('review').hidden=false;$('record').disabled=false;
-      setStatus(`Take ready (${durationLabel((Date.now()-startedAt)/1000)}). Listen, then save it.`, 'sectionStatus');
+    recordingInterrupted=false;
+    mediaRecorder.onstart=()=>{
+      startedAt=Date.now();$('timer').textContent='00:00';
+      $('stop').disabled=false;
+      setRecordingIndicator('recording','Recording in progress','Speak or sing now. Press “Stop recording” when this take is complete.');
+      $('meterCaption').textContent='Recording is active · moving bars show sound reaching the microphone.';
+      setStatus('Recording is active. Tap Stop when you finish this take.','sectionStatus');
+      tick=setInterval(()=>{
+        const sec=Math.floor((Date.now()-startedAt)/1000);$('timer').textContent=durationLabel(sec);
+        if(sec>=300)stopRecording(false);
+      },250);
+      void startAudioMeter();
     };
-    startedAt=Date.now(); mediaRecorder.start(1000); $('timer').textContent='00:00';
-    tick=setInterval(()=>{const sec=Math.floor((Date.now()-startedAt)/1000);$('timer').textContent=durationLabel(sec);if(sec>=300)stopRecording(false);},250);
-    $('stop').disabled=false;setStatus('Recording… tap Stop when you finish this take.','sectionStatus');
-  }catch(error){releaseMic();clearTick();busy=false;$('record').disabled=false;$('stop').disabled=true;setStatus(error.name==='NotAllowedError'?'Microphone permission was blocked. Allow it in browser settings and try again.':error.message,'sectionStatus');}
+    mediaRecorder.onstop=()=>{
+      takeDuration=startedAt?(Date.now()-startedAt)/1000:0;
+      releaseMic();clearTick();resetAudioMeter();busy=false;$('stop').disabled=true;
+      $('sectionSelect').disabled=activeSession.status!=='RECORDING';
+      $('timer').textContent=durationLabel(takeDuration);
+      const blob=new Blob(chunks,{type:mediaRecorder.mimeType||chunks[0]?.type||'audio/webm'});chunks=[];
+      if(!blob.size){setRecordingIndicator('error','No audio captured','Recording stopped without audio. Check the microphone and try again.');setStatus('No audio was recorded. Please try again.','sectionStatus');$('record').disabled=false;return;}
+      takeBlob=blob; if(takeUrl)URL.revokeObjectURL(takeUrl);takeUrl=URL.createObjectURL(blob);
+      $('playback').src=takeUrl;$('review').hidden=false;$('record').disabled=false;
+      const stoppedMessage=recordingInterrupted?'Recording stopped unexpectedly. Review the recovered take below before saving.':'Recording stopped. Review the take below, then save it.';
+      setRecordingIndicator('ready','Recording stopped',stoppedMessage);
+      $('meterCaption').textContent='The microphone level display activates during recording; moving bars show sound reaching the microphone.';
+      setStatus(`Take ready (${durationLabel(takeDuration)}). Listen, then save it.`, 'sectionStatus');
+      recordingInterrupted=false;
+    };
+    mediaRecorder.start(1000);
+  }catch(error){releaseMic();clearTick();resetAudioMeter();busy=false;$('record').disabled=false;$('stop').disabled=true;$('sectionSelect').disabled=activeSession.status!=='RECORDING';setRecordingIndicator('error','Recording did not start','No take is being recorded. Correct the issue below and try again.');setStatus(error.name==='NotAllowedError'?'Microphone permission was blocked. Allow it in browser settings and try again.':error.message,'sectionStatus');}
 }
 
 function stopRecording(interrupted) {
   if(!mediaRecorder||mediaRecorder.state==='inactive')return;
-  $('stop').disabled=true;setStatus(interrupted?'Recording interrupted; preparing the take…':'Preparing your take…','sectionStatus');
-  try{mediaRecorder.stop();}catch(error){releaseMic();clearTick();busy=false;$('record').disabled=false;setStatus('Could not finish the recording. Please try again.','sectionStatus');}
+  if(interrupted)recordingInterrupted=true;
+  $('stop').disabled=true;clearTick();resetAudioMeter();
+  const elapsed=startedAt?Math.floor((Date.now()-startedAt)/1000):0;$('timer').textContent=durationLabel(elapsed);
+  setRecordingIndicator('stopping','Finishing recording…','The microphone is closing and the take is being prepared.');
+  setStatus(interrupted?'Recording interrupted; preparing the take…':'Preparing your take…','sectionStatus');
+  try{mediaRecorder.stop();}catch(error){releaseMic();clearTick();resetAudioMeter();busy=false;$('record').disabled=false;$('sectionSelect').disabled=activeSession.status!=='RECORDING';setRecordingIndicator('error','Could not finish recording','No take is currently recording. Please try again.');setStatus('Could not finish the recording. Please try again.','sectionStatus');}
 }
 
 async function saveTake() {
   if(!takeBlob||busy)return;
-  busy=true;$('saveTake').disabled=true;setStatus('Uploading and saving this take…','sectionStatus');
+  busy=true;$('saveTake').disabled=true;$('discardTake').disabled=true;setStatus('Uploading and saving this take…','sectionStatus');
   try{
     const form=new FormData();form.append('section',$('sectionSelect').value);form.append('duration_seconds',String(takeDuration));
     const ext=takeBlob.type.includes('mp4')?'m4a':takeBlob.type.includes('ogg')?'ogg':takeBlob.type.includes('wav')?'wav':'webm';
     form.append('audio',takeBlob,`recording.${ext}`);
     const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/clips`,{method:'POST',body:form});
     activeSession=data.session;takeBlob=null;if(takeUrl){URL.revokeObjectURL(takeUrl);takeUrl=null;} $('playback').removeAttribute('src');$('playback').load();$('review').hidden=true;
+    setRecordingIndicator('idle','Not recording','Your take is saved. Choose a section and press “Record a take” when ready.');$('timer').textContent='00:00';
+    $('meterCaption').textContent='The microphone level display activates during recording; moving bars show sound reaching the microphone.';
     showSection($('sectionSelect').value);renderSections(Number($('sectionSelect').value));setStatus(`Saved as take ${data.clip.take}. You can record another take or choose another section.`, 'sectionStatus');
   }catch(error){setStatus(error.message,'sectionStatus');}
-  finally{busy=false;$('saveTake').disabled=false;$('record').disabled=activeSession.status!=='RECORDING';}
+  finally{busy=false;$('saveTake').disabled=false;$('discardTake').disabled=!takeBlob;$('record').disabled=activeSession.status!=='RECORDING';}
+}
+
+function discardTake() {
+  if(!takeBlob||busy)return;
+  if(!confirm('Discard this unsaved take? It will be removed from this page and will not be uploaded.'))return;
+  takeBlob=null;takeDuration=0;startedAt=0;
+  if(takeUrl){URL.revokeObjectURL(takeUrl);takeUrl=null;}
+  $('playback').removeAttribute('src');$('playback').load();$('review').hidden=true;
+  $('timer').textContent='00:00';
+  setRecordingIndicator('idle','Take discarded','This unsaved take was removed and was not uploaded. Record another take when ready.');
+  setStatus('Unsaved take discarded. It was not uploaded to Render.','sectionStatus');
+  $('record').disabled=activeSession?.status!=='RECORDING';
+}
+
+async function deleteSavedTake() {
+  if(busy||activeSession?.status!=='RECORDING')return;
+  const sectionId=Number($('sectionSelect').value);
+  const clipId=$('savedTakeSelect').value;
+  const clip=sessionTakes(sectionId).find(item=>item.clip_id===clipId);
+  if(!clip)return;
+  const confirmed=confirm(`Delete saved Take ${clip.take} from Section ${sectionId}? It will be removed from this session and active Render storage. Encrypted backups may retain a copy under the retention terms in your notice.`);
+  if(!confirmed)return;
+  busy=true;$('deleteSavedTake').disabled=true;$('record').disabled=true;
+  setStatus(`Deleting saved Take ${clip.take}…`,'sectionStatus');
+  let resultMessage='';
+  try {
+    const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/clips/${encodeURIComponent(clip.clip_id)}`,{method:'DELETE'});
+    activeSession=data.session;
+    renderSections(sectionId);
+    resultMessage=`Saved Take ${clip.take} deleted from this session and active Render storage. Backups may retain a copy under the notice terms.`;
+  } catch(error) {
+    resultMessage=error.message;
+    try {
+      const latest=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}`);
+      activeSession=latest.session;
+      renderSections(sectionId);
+    } catch { /* Keep the current view if the session refresh also fails. */ }
+  } finally {
+    busy=false;
+    showSection(sectionId);
+    $('record').disabled=activeSession.status!=='RECORDING';
+    setStatus(resultMessage,'sectionStatus');
+  }
 }
 
 async function finishSession() {
@@ -341,7 +516,7 @@ async function finishSession() {
 }
 
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&mediaRecorder?.state==='recording')stopRecording(true);});
-window.addEventListener('pagehide',()=>{if(mediaRecorder?.state==='recording')stopRecording(true);releaseMic();clearTick();if(takeUrl)URL.revokeObjectURL(takeUrl);});
+window.addEventListener('pagehide',()=>{if(mediaRecorder?.state==='recording')stopRecording(true);releaseMic();clearTick();resetAudioMeter();if(takeUrl)URL.revokeObjectURL(takeUrl);});
 initialize();
 </script>
 </body>

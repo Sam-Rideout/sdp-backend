@@ -543,7 +543,7 @@ app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigi
       if ((await directoryBytes(DATA_DIR)) + req.file.size > MAX_STORE_BYTES) return res.status(507).json({ error: 'Voice-capture storage is full. Contact Project X before recording more.' });
 
       const takes = manifest.sections[String(section)].takes;
-      const takeNumber = takes.length + 1;
+      const takeNumber = takes.reduce((maximum, item) => Math.max(maximum, Number.isInteger(item.take) ? item.take : 0), 0) + 1;
       const clipId = crypto.randomUUID();
       const relativePath = path.join('clips', `section-${String(section).padStart(2, '0')}`, `take-${String(takeNumber).padStart(2, '0')}${ext}`);
       const target = path.join(sessionPath(manifest.session_id), relativePath);
@@ -567,6 +567,59 @@ app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigi
       res.status(201).json({ clip, session: publicManifest(manifest) });
     } catch (error) { next(error); }
   });
+
+app.delete('/api/sessions/:sessionId/clips/:clipId', authenticatedMember, requireSameOrigin, requireCaptureAccess, ownedManifest, async (req, res, next) => {
+  const manifest = req.manifest;
+  if (manifest.status !== 'RECORDING') return res.status(409).json({ error: 'Takes can only be deleted while this session is open for recording.' });
+  if (!/^[0-9a-f-]{36}$/i.test(req.params.clipId)) return res.status(404).json({ error: 'Recording not found.' });
+
+  let takes = null;
+  let takeIndex = -1;
+  for (const section of Object.values(manifest.sections || {})) {
+    if (!Array.isArray(section.takes)) continue;
+    const index = section.takes.findIndex(item => item.clip_id === req.params.clipId);
+    if (index >= 0) { takes = section.takes; takeIndex = index; break; }
+  }
+  if (!takes) return res.status(404).json({ error: 'Recording not found.' });
+
+  const clip = takes[takeIndex];
+  if (typeof clip.relative_path !== 'string' || !clip.relative_path) return res.status(404).json({ error: 'Recording not found.' });
+  const sessionRoot = sessionPath(manifest.session_id);
+  const filename = path.resolve(sessionRoot, clip.relative_path);
+  if (!filename.startsWith(`${sessionRoot}${path.sep}`)) return res.status(404).json({ error: 'Recording not found.' });
+  const tombstone = `${filename}.${crypto.randomUUID()}.delete`;
+  const previousUpdatedAt = manifest.updated_at;
+  let moved = false;
+  let manifestWritten = false;
+
+  try {
+    await fsp.rename(filename, tombstone);
+    moved = true;
+    takes.splice(takeIndex, 1);
+    manifest.updated_at = new Date().toISOString();
+    await writeManifest(manifest);
+    manifestWritten = true;
+  } catch (error) {
+    if (!manifestWritten) {
+      takes.splice(takeIndex, 0, clip);
+      manifest.updated_at = previousUpdatedAt;
+      if (moved) {
+        try { await fsp.rename(tombstone, filename); }
+        catch (restoreError) { console.error('Could not restore a take after failed deletion.', restoreError); }
+      }
+    }
+    if (error.code === 'ENOENT' && !moved) return res.status(404).json({ error: 'Recording not found.' });
+    return next(error);
+  }
+
+  try {
+    await fsp.unlink(tombstone);
+  } catch (error) {
+    console.error('Take was removed from its session but storage cleanup failed.', error);
+    return res.status(500).json({ error: 'The take was removed from the session, but file cleanup could not be confirmed. Contact Project X.' });
+  }
+  res.json({ ok: true, deleted_clip_id: clip.clip_id, session: publicManifest(manifest) });
+});
 
 app.post('/api/sessions/:sessionId/complete', authenticatedMember, requireSameOrigin, requireCaptureAccess, ownedManifest, async (req, res, next) => {
   try {
