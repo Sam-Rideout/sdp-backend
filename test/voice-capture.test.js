@@ -52,9 +52,7 @@ test('recording page shows exactly three unselected consent checkboxes', () => {
   assert.match(page, /function updateFinishStandard\(\)/);
   assert.match(page, /id="sectionSelect"/);
   assert.match(page, /sectionOptions\.label='Sections'/);
-  assert.match(page, /deleteOptions\.label='Delete a saved take'/);
   assert.match(page, /async function deleteSavedTake\(sectionId,clipId\)/);
-  assert.match(page, /option\.value=`delete\|\$\{section\.id\}\|\$\{take\.clip_id\}`/);
   assert.match(page, /WHITE · STANDARD = 0 saved takes/);
   assert.match(page, /YELLOW = 1 saved take/);
   assert.match(page, /GREEN = 2 or more saved takes/);
@@ -62,10 +60,14 @@ test('recording page shows exactly three unselected consent checkboxes', () => {
   assert.match(page, /#sectionSelect option\[data-state="none"\] \{ color:#fff; \}/);
   assert.match(page, /#sectionSelect option\[data-state="one"\] \{ color:#ffe08a; \}/);
   assert.match(page, /#sectionSelect option\[data-state="complete"\] \{ color:#a9e2c0; \}/);
-  assert.match(page, /#sectionSelect option\[data-state="delete"\] \{ color:#ffaaa3; \}/);
+  assert.match(page, /id="savedTakeManager"/);
+  assert.ok(page.indexOf('id="savedTakeManager"') < page.indexOf('id="promptTitle"'), 'saved take controls stay near the top, before the section prompt');
   assert.match(page, /id="savedTakePlayback"/);
   assert.match(page, /id="savedPlayback" controls/);
   assert.match(page, /listen\.textContent='Listen'/);
+  assert.match(page, /remove\.textContent='Delete'/);
+  assert.match(page, /remove\.addEventListener\('click',\(\)=>deleteSavedTake\(section\.id,take\.clip_id\)\)/);
+  assert.match(page, /Use Listen to hear a saved take, or Delete beside it/);
   assert.match(page, /async function playSavedTake\(sectionId,take\)/);
   assert.match(page, /clips\/\$\{encodeURIComponent\(take\.clip_id\)\}/);
   assert.match(page, /credentials:'same-origin'/);

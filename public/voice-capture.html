@@ -34,7 +34,6 @@
   #sectionSelect[data-state="one"],#sectionSelect option[data-state="one"] { color:#ffe08a; }
   #sectionSelect[data-state="complete"],#sectionSelect option[data-state="complete"] { color:#a9e2c0; }
   #sectionSelect[data-state="pending"],#sectionSelect option[data-state="pending"] { color:#c2c8cf; }
-  #sectionSelect option[data-state="delete"] { color:#ffaaa3; }
   #sectionSelect option { background:#242a30; }
   button { width:100%; border:0; padding:10px 14px; font-weight:bold; cursor:pointer; }
   button:disabled { opacity:.45; cursor:not-allowed; }
@@ -83,8 +82,11 @@
   .meter-caption { margin:0 0 12px; color:var(--muted); font-size:12px; text-align:center; }
   audio { width:100%; margin:8px 0; }
   .take-list { margin:8px 0 0; padding:0; color:var(--muted); list-style:none; }
+  .take-manager { margin:12px 0; padding:12px; border:1px solid var(--line); border-radius:10px; background:#1c2228; }
+  .take-manager h2 { margin:0 0 8px; font-size:18px; }
   .take-list li { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:7px 0; padding:8px 10px; border:1px solid var(--line); border-radius:8px; }
-  .take-list button { width:auto; min-height:38px; padding:6px 12px; }
+  .take-list .take-actions { display:flex; flex:0 0 auto; gap:8px; }
+  .take-list button { width:auto; min-width:76px; min-height:38px; padding:6px 10px; }
   .help { font-size:13px; color:var(--muted); }
   [hidden] { display:none!important; }
   @media(max-width:460px) { .row { grid-template-columns:1fr; } header,.card { padding:14px; } }
@@ -139,9 +141,20 @@
       <span id="sectionFlag" class="section-flag" data-state="none">STANDARD · 0 takes</span>
     </div>
     <p id="sessionLabel" class="muted"></p>
-    <label for="sectionSelect">Choose a section or delete a saved take</label>
+    <label for="sectionSelect">Choose a section</label>
     <select id="sectionSelect"></select>
     <p class="flag-legend"><strong>Section progress</strong><span class="standard-key">WHITE · STANDARD = 0 saved takes</span> · <span class="yellow-key">YELLOW = 1 saved take</span> · <span class="green-key">GREEN = 2 or more saved takes</span>. Each section dropdown option shows its status and count.</p>
+    <section id="savedTakeManager" class="take-manager" aria-labelledby="savedTakeHeading">
+      <h2 id="savedTakeHeading">Saved takes for this section</h2>
+      <ul id="takeList" class="take-list"></ul>
+      <p id="noSavedTakes" class="muted">No saved takes for this section yet.</p>
+      <section id="savedTakePlayback" class="prompt" hidden aria-live="polite">
+        <strong id="savedPlaybackTitle">Saved take playback</strong>
+        <audio id="savedPlayback" controls preload="none" aria-label="Listen to this saved take"></audio>
+        <button id="closeSavedPlayback" class="quiet" type="button">Close player</button>
+      </section>
+      <p class="help">Use Listen to hear a saved take, or Delete beside it to remove that take.</p>
+    </section>
     <div class="prompt" style="margin-top:12px">
       <strong id="promptTitle"></strong>
       <span id="instructions"></span>
@@ -170,15 +183,6 @@
       </div>
       <p class="help">Discard removes this unsaved take from the page. It has not been uploaded.</p>
     </div>
-    <h2 style="margin-top:18px">Saved takes for this section</h2>
-    <ul id="takeList" class="take-list"></ul>
-    <p id="noSavedTakes" class="muted">No saved takes for this section yet.</p>
-    <section id="savedTakePlayback" class="prompt" hidden aria-live="polite">
-      <strong id="savedPlaybackTitle">Saved take playback</strong>
-      <audio id="savedPlayback" controls preload="none" aria-label="Listen to this saved take"></audio>
-      <button id="closeSavedPlayback" class="quiet" type="button">Close player</button>
-    </section>
-    <p class="help">To delete a saved take, choose its “Delete Take…” entry from the section dropdown above.</p>
     <p class="help">Keep the page open while recording and saving. A take is not stored until Save this take finishes.</p>
     <aside id="finishStandard" class="prompt" hidden aria-live="polite">
       <h2 id="finishStandardTitle">Finish Standard</h2>
@@ -319,36 +323,11 @@ function renderSections(selectedId=activeSectionId) {
     option.disabled=!section.configured; sectionOptions.appendChild(option);
   }
   menu.appendChild(sectionOptions);
-
-  const deleteOptions=document.createElement('optgroup'); deleteOptions.label='Delete a saved take';
-  let deleteOptionCount=0;
-  for(const section of sections) {
-    for(const take of sessionTakes(section.id)) {
-      const option=document.createElement('option');
-      option.value=`delete|${section.id}|${take.clip_id}`;
-      option.dataset.state='delete';
-      option.textContent=`Delete Take ${take.take} · Section ${section.id}`;
-      option.disabled=activeSession.status!=='RECORDING';
-      deleteOptions.appendChild(option); deleteOptionCount++;
-    }
-  }
-  if(deleteOptionCount===0) {
-    const empty=document.createElement('option');empty.value='delete-none';empty.textContent='No saved takes to delete';empty.disabled=true;empty.dataset.state='pending';
-    deleteOptions.appendChild(empty);
-  }
-  menu.appendChild(deleteOptions);
   const next=sections.find(item=>item.id===Number(selectedId)&&item.configured)||configuredSections()[0];
   if(next){activeSectionId=next.id;menu.value=String(next.id);updateSectionMenuColor();showSection(next.id);}
 }
 function handleSectionMenuChange() {
-  const menu=$('sectionSelect'), value=menu.value;
-  if(value.startsWith('delete|')) {
-    const [,sectionId,clipId]=value.split('|');
-    menu.value=String(activeSectionId);updateSectionMenuColor();
-    deleteSavedTake(Number(sectionId),clipId);
-    return;
-  }
-  activeSectionId=Number(value);
+  activeSectionId=Number($('sectionSelect').value);
   updateSectionMenuColor();showSection(activeSectionId);
 }
 
@@ -356,6 +335,7 @@ function showSection(id) {
   const section=config.sections.find(item=>item.id===Number(id));
   if(!section||!section.configured) return;
   $('sectionTitle').textContent=`Section ${section.id} of ${config.sections.length}`;
+  $('savedTakeHeading').textContent=`Saved takes · Section ${section.id}`;
   updateSectionFlag(section);
   $('promptTitle').textContent=section.title;
   $('instructions').textContent=section.instructions;
@@ -367,12 +347,18 @@ function showSection(id) {
     const item=document.createElement('li');
     const label=document.createElement('span');
     label.textContent=`Take ${take.take} · ${durationLabel(take.duration_seconds)} · saved`;
+    const actions=document.createElement('div');actions.className='take-actions';
     const listen=document.createElement('button');
     listen.type='button';listen.className='quiet';listen.textContent='Listen';
     listen.setAttribute('aria-label',`Listen to Take ${take.take} from Section ${section.id}`);
     listen.disabled=activeSession.status==='TRANSFERRED_AUDIO_DELETED';
     listen.addEventListener('click',()=>playSavedTake(section.id,take));
-    item.append(label,listen);takeList.appendChild(item);
+    const remove=document.createElement('button');
+    remove.type='button';remove.className='danger';remove.textContent='Delete';
+    remove.setAttribute('aria-label',`Delete Take ${take.take} from Section ${section.id}`);
+    remove.disabled=activeSession.status!=='RECORDING'||busy;
+    remove.addEventListener('click',()=>deleteSavedTake(section.id,take.clip_id));
+    actions.append(listen,remove);item.append(label,actions);takeList.appendChild(item);
   }
   $('noSavedTakes').hidden=takes.length>0;
   $('record').disabled=activeSession.status!=='RECORDING'||busy;
