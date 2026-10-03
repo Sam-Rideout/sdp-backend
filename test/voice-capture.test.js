@@ -50,13 +50,28 @@ test('recording page shows exactly three unselected consent checkboxes', () => {
   assert.match(page, /id="finishStandard"/);
   assert.match(page, /function allSectionsHaveTakes\(\)/);
   assert.match(page, /function updateFinishStandard\(\)/);
-  assert.match(page, /id="savedTakeSelect"/);
-  assert.match(page, /id="deleteSavedTake"/);
-  assert.match(page, /async function deleteSavedTake\(\)/);
+  assert.match(page, /id="sectionSelect"/);
+  assert.match(page, /sectionOptions\.label='Sections'/);
+  assert.match(page, /deleteOptions\.label='Delete a saved take'/);
+  assert.match(page, /async function deleteSavedTake\(sectionId,clipId\)/);
+  assert.match(page, /option\.value=`delete\|\$\{section\.id\}\|\$\{take\.clip_id\}`/);
   assert.match(page, /WHITE · STANDARD = 0 saved takes/);
   assert.match(page, /YELLOW = 1 saved take/);
   assert.match(page, /GREEN = 2 or more saved takes/);
   assert.match(page, /function sectionFlag\(count\)/);
+  assert.match(page, /#sectionSelect option\[data-state="none"\] \{ color:#fff; \}/);
+  assert.match(page, /#sectionSelect option\[data-state="one"\] \{ color:#ffe08a; \}/);
+  assert.match(page, /#sectionSelect option\[data-state="complete"\] \{ color:#a9e2c0; \}/);
+  assert.match(page, /#sectionSelect option\[data-state="delete"\] \{ color:#ffaaa3; \}/);
+  assert.match(page, /id="savedTakePlayback"/);
+  assert.match(page, /id="savedPlayback" controls/);
+  assert.match(page, /listen\.textContent='Listen'/);
+  assert.match(page, /async function playSavedTake\(sectionId,take\)/);
+  assert.match(page, /clips\/\$\{encodeURIComponent\(take\.clip_id\)\}/);
+  assert.match(page, /credentials:'same-origin'/);
+  assert.match(page, /function clearSavedPlayback\(\)/);
+  assert.match(page, /option\.dataset\.state=flag\.state/);
+  assert.match(page, /function updateSectionMenuColor\(\)/);
   assert.match(page, /consentDocument[\s\S]*href="\/consent"/);
 });
 
@@ -203,7 +218,22 @@ test('authenticated member saves separate takes and transfer verification gates 
   assert.equal(secondUpload.clip.take, 2);
   const secondTake = { ...secondUpload.clip, audio: secondAudio };
 
+  const listenedTake = await fetch(`${base}/api/sessions/${session.session_id}/clips/${secondTake.clip_id}`, {
+    headers: { cookie }
+  });
+  assert.equal(listenedTake.status, 200, 'the signed-in owner can retrieve a saved take to listen');
+  assert.match(listenedTake.headers.get('content-type'), /^audio\/webm/);
+  assert.equal(listenedTake.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(Buffer.from(await listenedTake.arrayBuffer()), secondAudio);
+
+  const unauthenticatedListen = await fetch(`${base}/api/sessions/${session.session_id}/clips/${secondTake.clip_id}`);
+  assert.equal(unauthenticatedListen.status, 401, 'listening requires member authentication');
+
   await postTicket('test-member-002');
+  const wrongOwnerListen = await fetch(`${base}/api/sessions/${session.session_id}/clips/${secondTake.clip_id}`, {
+    headers: { cookie }
+  });
+  assert.equal(wrongOwnerListen.status, 404, 'another member cannot listen to this take');
   const wrongOwnerDelete = await fetch(`${base}/api/sessions/${session.session_id}/clips/${firstTake.clip_id}`, {
     method: 'DELETE', headers: { origin: base, cookie }
   });
