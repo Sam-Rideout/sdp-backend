@@ -11,12 +11,14 @@ const path = require('node:path');
 process.env.WIX_HANDOFF_SECRET = 'test-handoff-secret-that-is-longer-than-thirty-two-bytes';
 process.env.VOICE_TRANSFER_TOKEN = 'test-transfer-token-that-is-longer-than-thirty-two-bytes';
 process.env.VOICE_CONSENT_APPROVED = 'true';
+process.env.VOICE_CUSTOMER_CAPTURE_APPROVED = 'true';
 const testRoot = fsSync.mkdtempSync(path.join(os.tmpdir(), 'px-voice-capture-api-test-'));
 process.env.VOICE_DATA_DIR = path.join(testRoot, 'data');
 const configPath = path.join(testRoot, 'capture-sections.json');
 const originalConfig = JSON.parse(fsSync.readFileSync(path.join(__dirname, '..', 'config', 'capture-sections.json'), 'utf8'));
 originalConfig.consent_version = 'test-consent-v1';
 originalConfig.consent_notice = originalConfig.consent_notice.replace('DRAFT — ', '');
+originalConfig.prompts_approved = true;
 for (const section of originalConfig.sections) {
   if (!section.instructions) section.instructions = 'Automated test prompt.';
 }
@@ -27,11 +29,36 @@ let server;
 let base;
 let cookie;
 
-async function postTicket() {
+test('recording page shows exactly three unselected consent checkboxes', () => {
+  const page = fsSync.readFileSync(path.join(__dirname, '..', 'public', 'voice-capture.html'), 'utf8');
+  const customerPanel = page.match(/<div id="customerConsentPanel">([\s\S]*?)<\/div>\s*<div id="pilotConsentPanel"/)[1];
+  const boxes = [...customerPanel.matchAll(/<input\b[^>]*type="checkbox"[^>]*>/g)];
+  assert.equal(boxes.length, 3);
+  assert.ok(boxes.every(([markup]) => !/\bchecked\b/i.test(markup)));
+  assert.match(page, /id="pilotUnderstood"/);
+  assert.match(page, /id="pilotConsentPanel" hidden/);
+  assert.match(page, /href="\/pilot-consent"/);
+  const wixHandoff = fsSync.readFileSync(path.join(__dirname, '..', 'wix', 'voiceCapture.web.js'), 'utf8');
+  assert.match(wixHandoff, /email:\s*typeof member\.loginEmail/);
+  assert.match(page, /id="deleteAfterOrder"/);
+  assert.match(page, /id="futurePurchases"/);
+  assert.match(page, /id="developmentUse"/);
+  assert.match(page, /function retentionChoice\(\)/);
+  assert.match(page, /function syncConsentControls\(changedId=''\)/);
+  assert.match(page, /const accepted=config\?\.capture_mode==='LIMITED_HELPER_PILOT'/);
+  assert.match(page, /!config\?\.capture_enabled\|\|!accepted/);
+  assert.match(page, /id="finishStandard"/);
+  assert.match(page, /function allSectionsHaveTakes\(\)/);
+  assert.match(page, /function updateFinishStandard\(\)/);
+  assert.match(page, /consentDocument[\s\S]*href="\/consent"/);
+});
+
+async function postTicket(memberId = 'test-member-001') {
   const now = Math.floor(Date.now() / 1000);
   const ticket = sign({
     iss: 'wix', aud: 'project-x-voice-capture', purpose: 'voice-capture-access',
-    sub: 'test-member-001', iat: now, exp: now + 120, jti: crypto.randomBytes(24).toString('hex')
+    sub: memberId, email: memberId === 'test-member-001' ? 'sam.rideout.me@gmail.com' : `${memberId}@example.com`,
+    iat: now, exp: now + 120, jti: crypto.randomBytes(24).toString('hex')
   });
   const response = await fetch(`${base}/api/session/exchange`, {
     method: 'POST', headers: { 'content-type': 'application/json', origin: base },
@@ -60,14 +87,83 @@ test('authenticated member saves separate takes and transfer verification gates 
   });
   assert.equal(replay.status, 401, 'handoff tickets are one-use');
 
+  originalConfig.prompts_approved = false;
+  await fs.writeFile(configPath, `${JSON.stringify(originalConfig, null, 2)}\n`);
+  const unapprovedConfig = await (await fetch(`${base}/api/config`)).json();
+  assert.equal(unapprovedConfig.prompts_ready, false);
+  assert.equal(unapprovedConfig.capture_enabled, false);
+  const blockedSession = await fetch(`${base}/api/sessions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: base, cookie },
+    body: JSON.stringify({ consent: {
+      accepted: true, version: unapprovedConfig.consent_version,
+      retention_choice: 'DELETE_AFTER_ORDER', development_use: false
+    } })
+  });
+  assert.equal(blockedSession.status, 503, 'sessions stay blocked until prompts are approved');
+
+  originalConfig.prompts_approved = true;
+  await fs.writeFile(configPath, `${JSON.stringify(originalConfig, null, 2)}\n`);
   const config = await (await fetch(`${base}/api/config`)).json();
+  assert.equal(config.prompts_ready, true);
+  assert.equal(config.sections.length, 8);
+  assert.ok(config.sections.every(section => section.configured));
+  assert.equal(config.finish_standard.title, 'Finish Standard');
+  assert.match(config.finish_standard.text, /Target: approximately 10–20 minutes/);
+  assert.equal(config.consent_choices.delete_after_order.length > 0, true);
+  assert.equal(config.consent_choices.future_purchases.length > 0, true);
+  assert.equal(config.consent_choices.development_use.length > 0, true);
+  assert.equal(config.consent_document_path, '/consent');
+  const consentDocument = await fetch(`${base}/consent`);
+  assert.equal(consentDocument.status, 200);
+  assert.match(await consentDocument.text(), /DRAFT PREVIEW — NOT LIVE OR OPERATIONAL/);
+
+  for (const consent of [
+    true,
+    { accepted: true, version: config.consent_version, retention_choice: 'BOTH', development_use: false },
+    { accepted: true, version: config.consent_version, retention_choice: 'DELETE_AFTER_ORDER', development_use: 'yes' },
+    { accepted: true, version: 'old-version', retention_choice: 'DELETE_AFTER_ORDER', development_use: false }
+  ]) {
+    const invalid = await fetch(`${base}/api/sessions`, {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: base, cookie },
+      body: JSON.stringify({ consent, consent_version: config.consent_version })
+    });
+    assert.equal(invalid.status, 400, 'invalid or incomplete consent selections are rejected');
+  }
+
   const createdResponse = await fetch(`${base}/api/sessions`, {
     method: 'POST', headers: { 'content-type': 'application/json', origin: base, cookie },
-    body: JSON.stringify({ consent: true, consent_version: config.consent_version })
+    body: JSON.stringify({ consent: {
+      accepted: true, version: config.consent_version,
+      retention_choice: 'DELETE_AFTER_ORDER', development_use: false
+    } })
   });
   assert.equal(createdResponse.status, 201);
   const { session } = await createdResponse.json();
   assert.equal(session.consent.accepted, true);
+  assert.equal(session.consent.current_order, true);
+  assert.equal(session.consent.retention_choice, 'DELETE_AFTER_ORDER');
+  assert.equal(session.consent.future_purchase_storage, false);
+  assert.equal(session.consent.development_use, false);
+  assert.match(session.consent.choice_text.retention, /delet/i);
+  assert.equal(session.consent.consent_evidence_sha256.length, 64);
+
+  await postTicket('test-member-002');
+  const futureResponse = await fetch(`${base}/api/sessions`, {
+    method: 'POST', headers: { 'content-type': 'application/json', origin: base, cookie },
+    body: JSON.stringify({ consent: {
+      accepted: true, version: config.consent_version,
+      retention_choice: 'FUTURE_PURCHASES', development_use: true
+    } })
+  });
+  assert.equal(futureResponse.status, 201);
+  const { session: futureSession } = await futureResponse.json();
+  assert.equal(futureSession.consent.current_order, true);
+  assert.equal(futureSession.consent.retention_choice, 'FUTURE_PURCHASES');
+  assert.equal(futureSession.consent.future_purchase_storage, true);
+  assert.equal(futureSession.consent.development_use, true);
+  assert.match(futureSession.consent.choice_text.development_use, /development/i);
+  await postTicket('test-member-001');
 
   const uploadedClips = [];
   for (let section = 1; section <= 8; section += 1) {
@@ -115,4 +211,63 @@ test('authenticated member saves separate takes and transfer verification gates 
 
   const missing = await fetch(`${base}/api/transfer/sessions/${session.session_id}/clips/${uploaded.clip_id}`, { headers: auth });
   assert.equal(missing.status, 410);
+
+  process.env.VOICE_CAPTURE_MODE = 'LIMITED_HELPER_PILOT';
+  process.env.VOICE_PILOT_CAPTURE_APPROVED = 'true';
+  process.env.VOICE_PILOT_CONSENT_VERSION = 'limited-helper-pilot-test-v1';
+  process.env.VOICE_PILOT_EMAILS = 'SAM.RIDEOUT.ME@GMAIL.COM';
+  await postTicket('test-member-001');
+  const pilotConfig = await (await fetch(`${base}/api/config`, { headers: { cookie } })).json();
+  assert.equal(pilotConfig.capture_mode, 'LIMITED_HELPER_PILOT');
+  assert.equal(pilotConfig.capture_enabled, true);
+  assert.equal(pilotConfig.pilot_access, true);
+  assert.equal(pilotConfig.account_email, 'sam.rideout.me@gmail.com');
+  assert.match(pilotConfig.pilot_consent_notice, /Render.*encrypted daily disk snapshots/s);
+  assert.equal(pilotConfig.pilot_consent_document_path, '/pilot-consent');
+  const pilotDocument = await fetch(`${base}/pilot-consent`);
+  assert.equal(pilotDocument.status, 200);
+  assert.match(await pilotDocument.text(), /does not publish a maximum retention period/);
+
+  const pilotSessions = await (await fetch(`${base}/api/sessions`, { headers: { cookie } })).json();
+  assert.deepEqual(pilotSessions.sessions, [], 'customer sessions are hidden while pilot mode is active');
+  const pilotCreate = await fetch(`${base}/api/sessions`, {
+    method: 'POST', headers: { 'content-type': 'application/json', origin: base, cookie },
+    body: JSON.stringify({ pilot_consent: {
+      accepted: true, version: pilotConfig.pilot_consent_version, understood: true
+    } })
+  });
+  assert.equal(pilotCreate.status, 201);
+  const { session: pilotSession } = await pilotCreate.json();
+  assert.equal(pilotSession.program, 'LIMITED_HELPER_PILOT');
+  assert.equal(pilotSession.purpose, 'RECORDING_WORKFLOW_AND_CAPTURE_QUALITY_TEST_ONLY');
+  assert.equal(pilotSession.consent.current_order, false);
+  assert.equal(pilotSession.consent.retention_policy, 'UNTIL_PILOT_END_OR_EARLIER_DELETION_REQUEST');
+  assert.equal(pilotSession.consent.accepted, true);
+  assert.equal(pilotSession.consent.consent_evidence_sha256.length, 64);
+
+  await postTicket('not-invited-member');
+  const deniedConfig = await (await fetch(`${base}/api/config`, { headers: { cookie } })).json();
+  assert.equal(deniedConfig.capture_enabled, false);
+  assert.equal(deniedConfig.pilot_access, false);
+  const deniedCreate = await fetch(`${base}/api/sessions`, {
+    method: 'POST', headers: { 'content-type': 'application/json', origin: base, cookie },
+    body: JSON.stringify({ pilot_consent: {
+      accepted: true, version: pilotConfig.pilot_consent_version, understood: true
+    } })
+  });
+  assert.equal(deniedCreate.status, 403, 'non-allowlisted members cannot create pilot sessions');
+
+  process.env.VOICE_PILOT_EMAILS = 'a1@x.co,a2@x.co,a3@x.co,a4@x.co,a5@x.co,a6@x.co,a7@x.co,a8@x.co,a9@x.co,a10@x.co,a11@x.co';
+  const overLimit = await fetch(`${base}/api/sessions`, {
+    method: 'POST', headers: { 'content-type': 'application/json', origin: base, cookie },
+    body: JSON.stringify({ pilot_consent: {
+      accepted: true, version: pilotConfig.pilot_consent_version, understood: true
+    } })
+  });
+  assert.equal(overLimit.status, 503, 'allowlist above ten members fails closed');
+
+  process.env.VOICE_CAPTURE_MODE = 'CUSTOMER';
+  delete process.env.VOICE_CUSTOMER_CAPTURE_APPROVED;
+  const customerGate = await (await fetch(`${base}/api/config`)).json();
+  assert.equal(customerGate.capture_enabled, false, 'customer capture remains off unless separately approved');
 });

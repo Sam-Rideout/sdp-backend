@@ -93,7 +93,13 @@ def transfer(base_url: str, session_id: str, destination: Path, token: str) -> P
         raise RuntimeError(f"Session status is {manifest.get('status')}; it must be READY_FOR_TRANSFER.")
 
     profile_id = safe_component(envelope.get("profile_id", ""))
-    output_dir = destination / profile_id / session_id
+    program = manifest.get("program", "CUSTOMER")
+    if program == "LIMITED_HELPER_PILOT":
+        output_dir = destination / "Pilot_Testers" / profile_id / session_id
+    elif program == "CUSTOMER":
+        output_dir = destination / profile_id / session_id
+    else:
+        raise RuntimeError("The session has an unknown program label; no files were written.")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     local_manifest_path = output_dir / "Session_Manifest.json"
@@ -140,6 +146,7 @@ def transfer(base_url: str, session_id: str, destination: Path, token: str) -> P
     combined_name = combine_for_listening(output_dir, clip_entries)
     report = {
         "schema_version": "PX-TIER1-LOCAL-TRANSFER-1.0.0",
+        "program": program,
         "session_id": session_id,
         "profile_id": profile_id,
         "manifest_sha256": manifest_hash,
@@ -184,7 +191,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("session_id", help="Session ID shown in the capture page")
     parser.add_argument("--url", default="https://sdp-backend-6xt6.onrender.com", help="Render service base URL")
-    default_destination = Path("D:/Working/Project_X/PX_Voice_Library") if os.name == "nt" else Path.home() / "PX_Voice_Library"
+    default_destination = Path("D:/Working/Project_X/PX_Engine/Voices") if os.name == "nt" else Path.home() / "PX_Engine_Voices"
     parser.add_argument("--destination", type=Path, default=default_destination, help="Local master-library root")
     args = parser.parse_args()
     token = os.environ.get("VOICE_TRANSFER_TOKEN") or getpass.getpass("Render transfer token: ")

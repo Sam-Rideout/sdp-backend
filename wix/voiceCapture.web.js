@@ -13,7 +13,7 @@ function base64url(value) {
 export const issueVoiceCaptureTicket = webMethod(
   Permissions.SiteMember,
   async () => {
-    const member = await currentMember.getMember();
+    const member = await currentMember.getMember({ fieldsets: ['FULL'] });
     if (!member?._id) throw new Error('Sign in to your Project X account first.');
 
     const key = await getSecret(SECRET_NAME);
@@ -27,6 +27,7 @@ export const issueVoiceCaptureTicket = webMethod(
       aud: 'project-x-voice-capture',
       purpose: 'voice-capture-access',
       sub: member._id,
+      email: typeof member.loginEmail === 'string' ? member.loginEmail.trim().toLowerCase() : '',
       iat: now,
       exp: now + 120,
       jti: randomBytes(24).toString('hex')

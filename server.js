@@ -21,6 +21,62 @@ const DATA_DIR = path.resolve(process.env.VOICE_DATA_DIR ||
 const SESSION_DIR = path.join(DATA_DIR, 'sessions');
 const REPLAY_DIR = path.join(DATA_DIR, 'used-handoff-tickets');
 const SECTION_CONFIG = path.resolve(process.env.VOICE_SECTION_CONFIG || path.join(ROOT, 'config', 'capture-sections.json'));
+const PILOT_CONSENT_VERSION = 'limited-helper-pilot-2026-10-03-v1';
+const PILOT_CONSENT_NOTICE = 'LIMITED HELPER PILOT. This is a test of the recording workflow, not a customer order. Your recordings will be used only to test and improve the recording process and capture quality. They will not be used in customer orders or production machine-learning training. The recording clips are stored temporarily on Render while they are transferred to Sam’s PC. After the local transfer is verified, the live Render audio files are deleted. Render also creates encrypted daily disk snapshots; Render documents that snapshots are kept for at least 7 days and does not publish a maximum retention period. Deleted live files may therefore remain in snapshots for an unknown period. The local pilot copy will be kept only while the limited pilot is active, unless you ask for deletion sooner. Contact Sam at sam.rideout.me@gmail.com to request deletion or stop participating. Do not continue if you do not agree.';
+
+function captureMode() {
+  const value = process.env.VOICE_CAPTURE_MODE || 'CUSTOMER';
+  return ['CUSTOMER', 'LIMITED_HELPER_PILOT'].includes(value) ? value : 'INVALID';
+}
+
+function normalizeEmail(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function pilotEmails() {
+  return [...new Set(String(process.env.VOICE_PILOT_EMAILS || '')
+    .split(',').map(normalizeEmail).filter(Boolean))];
+}
+
+function pilotEmailAllowed(email) {
+  return Boolean(email) && pilotEmails().includes(normalizeEmail(email));
+}
+
+function pilotConfigurationReady() {
+  const emails = pilotEmails();
+  const version = process.env.VOICE_PILOT_CONSENT_VERSION || PILOT_CONSENT_VERSION;
+  return process.env.VOICE_PILOT_CAPTURE_APPROVED === 'true' &&
+    emails.length >= 1 && emails.length <= 10 &&
+    emails.every(value => value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) &&
+    typeof version === 'string' && version.length >= 8 && !version.toLowerCase().startsWith('draft');
+}
+
+function optionalAuthenticatedMember(req, res, next) {
+  try {
+    const payload = verifySigned(cookieValue(req));
+    const now = Math.floor(Date.now() / 1000);
+    if (payload && payload.iss === 'project-x-voice-capture' &&
+        typeof payload.sub === 'string' && payload.sub.length >= 3 &&
+        Number.isInteger(payload.exp) && payload.exp > now) {
+      req.memberId = payload.sub;
+      req.memberEmail = normalizeEmail(payload.email);
+    }
+    next();
+  } catch (error) { next(error); }
+}
+
+function requireCaptureAccess(req, res, next) {
+  const mode = captureMode();
+  if (mode === 'INVALID') return res.status(503).json({ error: 'Voice capture is disabled because its mode is invalid.' });
+  if (mode === 'LIMITED_HELPER_PILOT') {
+    if (!pilotConfigurationReady()) return res.status(503).json({ error: 'The limited helper pilot is not configured.' });
+    if (!pilotEmailAllowed(req.memberEmail)) return res.status(403).json({ error: 'This Wix sign-in email has not been invited to the limited helper pilot.' });
+    req.captureProgram = 'LIMITED_HELPER_PILOT';
+    return next();
+  }
+  req.captureProgram = 'CUSTOMER';
+  next();
+}
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -117,6 +173,7 @@ function authenticatedMember(req, res, next) {
       return res.status(401).json({ error: 'Sign in through the Project X member page to continue.' });
     }
     req.memberId = payload.sub;
+    req.memberEmail = normalizeEmail(payload.email);
     next();
   } catch (error) { next(error); }
 }
@@ -165,6 +222,8 @@ async function ownedManifest(req, res, next) {
   try {
     const manifest = await readManifest(id);
     if (manifest.owner_member_id !== req.memberId) return res.status(404).json({ error: 'Session not found.' });
+    const program = manifest.program || 'CUSTOMER';
+    if (program !== (req.captureProgram || captureMode())) return res.status(404).json({ error: 'Session not found.' });
     req.manifest = manifest;
     next();
   } catch (error) {
@@ -241,19 +300,51 @@ app.get('/health', (req, res) => {
 
 app.get('/', (req, res) => res.redirect(302, '/voice-capture'));
 app.get('/voice-capture', (req, res) => res.sendFile(path.join(ROOT, 'public', 'voice-capture.html')));
+app.get('/consent', (req, res) => res.sendFile(path.join(ROOT, 'public', 'consent.html')));
+app.get('/pilot-consent', (req, res) => res.sendFile(path.join(ROOT, 'public', 'pilot-consent.html')));
 
-app.get('/api/config', (req, res, next) => {
+app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
   try {
     const config = JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'));
-    const promptsReady = config.sections.length === SECTION_COUNT &&
+    const promptsReady = config.prompts_approved === true && config.sections.length === SECTION_COUNT &&
       config.sections.every(section => section.title && section.instructions);
+    const choicesReady = ['delete_after_order', 'future_purchases', 'development_use']
+      .every(key => typeof config.consent_choices?.[key] === 'string' && config.consent_choices[key].trim());
     const configuredConsentVersion = process.env.VOICE_CONSENT_VERSION || config.consent_version;
-    const consentApproved = process.env.VOICE_CONSENT_APPROVED === 'true' &&
+    const consentApproved = process.env.VOICE_CUSTOMER_CAPTURE_APPROVED === 'true' &&
+      process.env.VOICE_CONSENT_APPROVED === 'true' &&
       !String(config.consent_notice).includes('DRAFT') &&
-      !String(configuredConsentVersion).toLowerCase().startsWith('draft');
+      !String(configuredConsentVersion).toLowerCase().startsWith('draft') &&
+      choicesReady && config.consent_document_path === '/consent';
+    const mode = captureMode();
+    if (mode === 'LIMITED_HELPER_PILOT') {
+      const pilotEnabled = pilotConfigurationReady() && promptsReady;
+      const pilotAccess = pilotEnabled && pilotEmailAllowed(req.memberEmail);
+      return res.json({
+        capture_mode: 'LIMITED_HELPER_PILOT',
+        pilot_access: pilotAccess,
+        account_email: req.memberEmail || null,
+        pilot_consent_version: process.env.VOICE_PILOT_CONSENT_VERSION || PILOT_CONSENT_VERSION,
+        pilot_consent_notice: PILOT_CONSENT_NOTICE,
+        pilot_consent_document_path: '/pilot-consent',
+        pilot_consent_draft: false,
+        prompts_ready: promptsReady,
+        capture_enabled: pilotAccess,
+        sections: config.sections.map(section => ({
+          id: section.id, title: section.title, instructions: section.instructions,
+          configured: Boolean(section.title && section.instructions)
+        })),
+        finish_standard: config.finish_standard || null
+      });
+    }
+    if (mode === 'INVALID') return res.json({ capture_mode: 'INVALID', capture_enabled: false, prompts_ready: false, sections: [] });
     res.json({
+      capture_mode: 'CUSTOMER',
       consent_version: configuredConsentVersion,
       consent_notice: config.consent_notice,
+      consent_choices: config.consent_choices || {},
+      consent_document_path: config.consent_document_path || '/consent',
+      finish_standard: config.finish_standard || null,
       consent_draft: !consentApproved,
       prompts_ready: promptsReady,
       capture_enabled: consentApproved && promptsReady,
@@ -281,7 +372,8 @@ app.post('/api/session/exchange', requireSameOrigin, async (req, res, next) => {
       return res.status(401).json({ error: 'This sign-in link has already been used. Return to the member page and try again.' });
     }
     await pruneOldReplayMarkers();
-    const cookie = sign({ iss: 'project-x-voice-capture', sub: claims.sub, exp: now + COOKIE_TTL_SECONDS });
+    const email = normalizeEmail(claims.email);
+    const cookie = sign({ iss: 'project-x-voice-capture', sub: claims.sub, email, exp: now + COOKIE_TTL_SECONDS });
     res.setHeader('Set-Cookie', `${COOKIE_NAME}=${encodeURIComponent(cookie)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${COOKIE_TTL_SECONDS}`);
     res.json({ ok: true });
   } catch (error) { next(error); }
@@ -292,7 +384,7 @@ app.post('/api/session/logout', requireSameOrigin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/sessions', authenticatedMember, async (req, res, next) => {
+app.get('/api/sessions', authenticatedMember, requireCaptureAccess, async (req, res, next) => {
   try {
     await fsp.mkdir(SESSION_DIR, { recursive: true });
     const entries = await fsp.readdir(SESSION_DIR, { withFileTypes: true });
@@ -301,7 +393,7 @@ app.get('/api/sessions', authenticatedMember, async (req, res, next) => {
       if (!entry.isDirectory() || !safeSessionId(entry.name)) continue;
       try {
         const manifest = await readManifest(entry.name);
-        if (manifest.owner_member_id === req.memberId) sessions.push(publicManifest(manifest));
+        if (manifest.owner_member_id === req.memberId && (manifest.program || 'CUSTOMER') === req.captureProgram) sessions.push(publicManifest(manifest));
       } catch { /* Ignore incomplete/unreadable folders; never expose them. */ }
     }
     sessions.sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -309,17 +401,71 @@ app.get('/api/sessions', authenticatedMember, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/sessions', authenticatedMember, requireSameOrigin, async (req, res, next) => {
+app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCaptureAccess, async (req, res, next) => {
   try {
     const config = JSON.parse(await fsp.readFile(SECTION_CONFIG, 'utf8'));
-    const promptsReady = config.sections.length === SECTION_COUNT && config.sections.every(section => section.title && section.instructions);
+    const promptsReady = config.prompts_approved === true && config.sections.length === SECTION_COUNT && config.sections.every(section => section.title && section.instructions);
+    if (req.captureProgram === 'LIMITED_HELPER_PILOT') {
+      if (!promptsReady) return res.status(503).json({ error: 'The eight recording prompts are not ready.' });
+      const expectedVersion = process.env.VOICE_PILOT_CONSENT_VERSION || PILOT_CONSENT_VERSION;
+      const submittedConsent = req.body?.pilot_consent;
+      if (!submittedConsent || submittedConsent.accepted !== true || submittedConsent.version !== expectedVersion || submittedConsent.understood !== true) {
+        return res.status(400).json({ error: 'Read the pilot notice and confirm it before starting.' });
+      }
+      await fsp.mkdir(SESSION_DIR, { recursive: true });
+      const existingDirs = await fsp.readdir(SESSION_DIR, { withFileTypes: true });
+      for (const entry of existingDirs) {
+        if (!entry.isDirectory() || !safeSessionId(entry.name)) continue;
+        try {
+          const existing = await readManifest(entry.name);
+          if (existing.owner_member_id === req.memberId && existing.program === 'LIMITED_HELPER_PILOT' && existing.status === 'RECORDING') {
+            return res.status(409).json({ error: 'Resume your open pilot session before starting another.' });
+          }
+        } catch { /* An incomplete session folder is not an authorized session. */ }
+      }
+      const now = new Date().toISOString();
+      const sessionId = crypto.randomUUID();
+      const evidence = { notice: PILOT_CONSENT_NOTICE, version: expectedVersion };
+      const manifest = {
+        schema_version: 'PX-TIER1-CAPTURE-SESSION-1.0.0',
+        program: 'LIMITED_HELPER_PILOT',
+        purpose: 'RECORDING_WORKFLOW_AND_CAPTURE_QUALITY_TEST_ONLY',
+        session_id: sessionId,
+        owner_member_id: req.memberId,
+        created_at: now,
+        updated_at: now,
+        status: 'RECORDING',
+        consent: {
+          accepted: true,
+          pilot_participation: true,
+          current_order: false,
+          version: expectedVersion,
+          retention_policy: 'UNTIL_PILOT_END_OR_EARLIER_DELETION_REQUEST',
+          notice_text: PILOT_CONSENT_NOTICE,
+          consent_evidence_sha256: sha256(JSON.stringify(evidence)),
+          accepted_at: now
+        },
+        sections: Object.fromEntries(Array.from({ length: SECTION_COUNT }, (_, index) => [String(index + 1), { takes: [] }]))
+      };
+      await fsp.mkdir(path.join(sessionPath(sessionId), 'clips'), { recursive: true, mode: 0o700 });
+      await writeManifest(manifest);
+      return res.status(201).json({ session: publicManifest(manifest) });
+    }
     const consentVersion = process.env.VOICE_CONSENT_VERSION || config.consent_version;
-    const consentApproved = process.env.VOICE_CONSENT_APPROVED === 'true' &&
-      !String(config.consent_notice).includes('DRAFT') && !String(consentVersion).toLowerCase().startsWith('draft');
+    const choiceLabels = config.consent_choices || {};
+    const choicesReady = ['delete_after_order', 'future_purchases', 'development_use']
+      .every(key => typeof choiceLabels[key] === 'string' && choiceLabels[key].trim());
+    const consentApproved = process.env.VOICE_CUSTOMER_CAPTURE_APPROVED === 'true' &&
+      process.env.VOICE_CONSENT_APPROVED === 'true' &&
+      !String(config.consent_notice).includes('DRAFT') && !String(consentVersion).toLowerCase().startsWith('draft') &&
+      choicesReady && config.consent_document_path === '/consent';
     if (!consentApproved || !promptsReady) return res.status(503).json({ error: 'New sessions are disabled until the consent wording and all eight prompts are approved.' });
     const expectedVersion = consentVersion;
-    if (req.body?.consent !== true || req.body?.consent_version !== expectedVersion) {
-      return res.status(400).json({ error: 'Review and accept the current recording consent before starting.' });
+    const submittedConsent = req.body?.consent;
+    const validRetentionChoice = ['DELETE_AFTER_ORDER', 'FUTURE_PURCHASES'].includes(submittedConsent?.retention_choice);
+    if (!submittedConsent || submittedConsent.accepted !== true || submittedConsent.version !== expectedVersion ||
+        !validRetentionChoice || typeof submittedConsent.development_use !== 'boolean') {
+      return res.status(400).json({ error: 'Choose exactly one retention option and submit the current consent version before starting.' });
     }
     await fsp.mkdir(SESSION_DIR, { recursive: true });
     const existingDirs = await fsp.readdir(SESSION_DIR, { withFileTypes: true });
@@ -334,15 +480,34 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, async (req, re
     }
     const now = new Date().toISOString();
     const sessionId = crypto.randomUUID();
-    const noticeHash = sha256(config.consent_notice);
+    const consentEvidence = {
+      notice: config.consent_notice,
+      choices: choiceLabels
+    };
+    const noticeHash = sha256(JSON.stringify(consentEvidence));
     const manifest = {
       schema_version: 'PX-TIER1-CAPTURE-SESSION-1.0.0',
+      program: 'CUSTOMER',
       session_id: sessionId,
       owner_member_id: req.memberId,
       created_at: now,
       updated_at: now,
       status: 'RECORDING',
-      consent: { accepted: true, version: expectedVersion, notice_text: config.consent_notice, notice_sha256: noticeHash, accepted_at: now },
+      consent: {
+        accepted: true,
+        current_order: true,
+        version: expectedVersion,
+        retention_choice: submittedConsent.retention_choice,
+        future_purchase_storage: submittedConsent.retention_choice === 'FUTURE_PURCHASES',
+        development_use: submittedConsent.development_use,
+        notice_text: config.consent_notice,
+        choice_text: {
+          retention: choiceLabels[submittedConsent.retention_choice === 'DELETE_AFTER_ORDER' ? 'delete_after_order' : 'future_purchases'],
+          development_use: choiceLabels.development_use
+        },
+        consent_evidence_sha256: noticeHash,
+        accepted_at: now
+      },
       sections: Object.fromEntries(Array.from({ length: SECTION_COUNT }, (_, index) => [String(index + 1), { takes: [] }]))
     };
     await fsp.mkdir(path.join(sessionPath(sessionId), 'clips'), { recursive: true, mode: 0o700 });
@@ -351,11 +516,11 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, async (req, re
   } catch (error) { next(error); }
 });
 
-app.get('/api/sessions/:sessionId', authenticatedMember, ownedManifest, (req, res) => {
+app.get('/api/sessions/:sessionId', authenticatedMember, requireCaptureAccess, ownedManifest, (req, res) => {
   res.json({ session: publicManifest(req.manifest) });
 });
 
-app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigin, ownedManifest,
+app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigin, requireCaptureAccess, ownedManifest,
   (req, res, next) => upload.single('audio')(req, res, error => error ? next(error) : next()),
   async (req, res, next) => {
     try {
@@ -403,7 +568,7 @@ app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigi
     } catch (error) { next(error); }
   });
 
-app.post('/api/sessions/:sessionId/complete', authenticatedMember, requireSameOrigin, ownedManifest, async (req, res, next) => {
+app.post('/api/sessions/:sessionId/complete', authenticatedMember, requireSameOrigin, requireCaptureAccess, ownedManifest, async (req, res, next) => {
   try {
     const manifest = req.manifest;
     if (manifest.status !== 'RECORDING') return res.status(409).json({ error: 'This session is already complete.' });
@@ -419,7 +584,7 @@ app.post('/api/sessions/:sessionId/complete', authenticatedMember, requireSameOr
   } catch (error) { next(error); }
 });
 
-app.get('/api/sessions/:sessionId/clips/:clipId', authenticatedMember, ownedManifest, async (req, res, next) => {
+app.get('/api/sessions/:sessionId/clips/:clipId', authenticatedMember, requireCaptureAccess, ownedManifest, async (req, res, next) => {
   try {
     const clip = allClips(req.manifest).find(item => item.clip_id === req.params.clipId);
     if (!clip) return res.status(404).json({ error: 'Recording not found.' });

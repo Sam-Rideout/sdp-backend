@@ -21,7 +21,13 @@
   .notice { padding:12px; border:1px solid var(--line); border-radius:10px; white-space:pre-wrap; }
   .draft { color:#ffe0a6; font-weight:bold; }
   label { display:block; margin:12px 0; }
-  input[type=checkbox] { width:20px; height:20px; vertical-align:middle; margin-right:8px; }
+  fieldset { border:1px solid var(--line); border-radius:10px; margin:14px 0; padding:8px 12px 4px; }
+  legend { padding:0 6px; font-weight:bold; }
+  input[type=checkbox] { width:22px; height:22px; flex:0 0 22px; margin:2px 8px 0 0; accent-color:var(--blue); }
+  .choice { display:flex; align-items:flex-start; gap:4px; padding:10px; border-radius:8px; background:#242a30; cursor:pointer; }
+  .choice span { display:block; }
+  .choice strong { display:block; color:#fff; }
+  .doc-link { display:inline-block; margin:4px 0 8px; color:var(--blue); font-weight:bold; }
   select,button { min-height:46px; border-radius:10px; font:inherit; }
   select { width:100%; padding:8px 10px; border:1px solid var(--line); background:#242a30; color:var(--text); }
   button { width:100%; border:0; padding:10px 14px; font-weight:bold; cursor:pointer; }
@@ -49,7 +55,7 @@
   <header>
     <p class="brand">PROJECT X · VOICE CAPTURE · TIER 1</p>
     <h1>Voice recording session</h1>
-    <p class="muted">Record each section as its own clip. You can make more than one take; earlier takes stay available. Record dry voice only, with no music or effects, in a quiet room. Keep a steady microphone distance and sing naturally without straining. Mistakes are fine: pause, breathe, and repeat the phrase.</p>
+    <p class="muted">This guided recording takes about 10–20 minutes; one pass is about 10 minutes. For a stronger, more useful voice profile, repeat at least three numbered sections twice. You can repeat any section more than twice. Use a quiet room and keep a steady distance from your microphone. Record your voice by itself: no backing music, reverb, pitch correction, compression, or doubling. Sing comfortably without straining. Mistakes are fine: pause, breathe, and repeat the phrase. Each take is saved separately, so you can review and redo a section without overwriting an earlier take.</p>
     <p id="account" class="status" role="status" aria-live="polite">Checking your member sign-in…</p>
   </header>
 
@@ -62,9 +68,26 @@
       <button id="resume" class="quiet" type="button">Open selected session</button>
       <hr>
     </div>
-    <p id="consentDraft" class="draft">Consent notice is a draft. Replace it with approved wording before inviting participants.</p>
-    <p id="consentNotice" class="notice"></p>
-    <label><input id="consent" type="checkbox">I have read this notice and agree to the recording and use described above.</label>
+    <div id="customerConsentPanel">
+      <p id="consentDraft" class="draft">Consent notice is a draft. Replace it with approved wording before inviting participants.</p>
+      <p id="consentNotice" class="notice"></p>
+      <a id="consentDocument" class="doc-link" href="/consent" target="_blank" rel="noopener">Read the full consent document</a>
+      <fieldset aria-describedby="retentionHelp">
+        <legend>Required · choose one data-retention option</legend>
+        <p id="retentionHelp" class="help">Choose exactly one. Both options include recording and use for your current order. Neither is selected in advance.</p>
+        <label class="choice"><input id="deleteAfterOrder" type="checkbox"><span><strong>Delete after this order</strong><span id="deleteChoiceText"></span></span></label>
+        <label class="choice"><input id="futurePurchases" type="checkbox"><span><strong>Keep for future purchases</strong><span id="futureChoiceText"></span></span></label>
+      </fieldset>
+      <label class="choice"><input id="developmentUse" type="checkbox"><span><strong>Optional · development</strong><span id="developmentChoiceText"></span></span></label>
+    </div>
+    <div id="pilotConsentPanel" hidden>
+      <p class="draft">LIMITED HELPER PILOT · workflow testing only</p>
+      <p id="pilotNotice" class="notice"></p>
+      <a id="pilotConsentDocument" class="doc-link" href="/pilot-consent" target="_blank" rel="noopener">Read the full pilot notice</a>
+      <label class="choice"><input id="pilotUnderstood" type="checkbox"><span><strong>I have read and agree to the limited pilot notice.</strong><span>This is voluntary. You can stop before creating a session.</span></span></label>
+      <p id="pilotAccessMessage" class="help" hidden></p>
+      <p id="pilotEmailRow" class="help" hidden>Your signed-in Wix email: <code id="pilotEmail"></code>. If you expected an invitation, confirm this is the email on the Wix account and contact Sam.</p>
+    </div>
     <button id="create" class="primary" type="button" disabled>Start a new session</button>
     <p id="setupBlock" class="help" hidden>New sessions are disabled until the prompts and consent wording have been approved in the server configuration.</p>
   </section>
@@ -95,6 +118,11 @@
     <h2 style="margin-top:18px">Saved takes for this section</h2>
     <ul id="takeList" class="take-list"></ul>
     <p class="help">Keep the page open while recording and saving. A take is not stored until Save this take finishes.</p>
+    <aside id="finishStandard" class="prompt" hidden aria-live="polite">
+      <h2 id="finishStandardTitle">Finish Standard</h2>
+      <p id="finishStandardText"></p>
+      <p class="help">Review your takes or record additional takes before finishing.</p>
+    </aside>
     <div class="row" style="margin-top:16px">
       <button id="finish" class="quiet" type="button">Finish this session</button>
       <button id="logout" class="quiet" type="button">Sign out of recorder</button>
@@ -120,6 +148,18 @@ function csrfHeaders() { return { 'Content-Type':'application/json' }; }
 function durationLabel(seconds) { const n=Math.max(0,Math.round(seconds||0)); return `${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`; }
 function sessionTakes(section) { return activeSession?.sections?.[String(section)]?.takes || []; }
 function configuredSections() { return (config?.sections || []).filter(section=>section.configured); }
+function allSectionsHaveTakes() {
+  return config?.sections?.length===8 && config.sections.every(section=>
+    section.configured && sessionTakes(section.id).length>0
+  );
+}
+function updateFinishStandard() {
+  const ready=allSectionsHaveTakes();
+  $('finishStandard').hidden=!ready;
+  $('finishStandardTitle').textContent=config?.finish_standard?.title||'Finish Standard';
+  $('finishStandardText').textContent=config?.finish_standard?.text||'';
+  $('finish').disabled=activeSession.status!=='RECORDING'||!ready;
+}
 function releaseMic() { if(stream){stream.getTracks().forEach(track=>track.stop());stream=null;} }
 function clearTick() { if(tick){clearInterval(tick);tick=null;} }
 
@@ -149,7 +189,7 @@ function showSection(id) {
     $('takeList').appendChild(item);
   }
   $('record').disabled=activeSession.status!=='RECORDING'||busy;
-  $('finish').disabled=activeSession.status!=='RECORDING';
+  updateFinishStandard();
 }
 
 async function refreshSessions() {
@@ -161,6 +201,19 @@ async function refreshSessions() {
     for(const item of resumable){const option=document.createElement('option'); option.value=item.session_id; option.textContent=`${new Date(item.created_at).toLocaleString()} · ${item.status.replaceAll('_',' ')}`; select.appendChild(option);}
   } else wrap.hidden=true;
   $('startCard').hidden=false;
+}
+
+function retentionChoice() {
+  if($('deleteAfterOrder').checked) return 'DELETE_AFTER_ORDER';
+  if($('futurePurchases').checked) return 'FUTURE_PURCHASES';
+  return '';
+}
+
+function syncConsentControls(changedId='') {
+  if(changedId==='deleteAfterOrder'&&$('deleteAfterOrder').checked) $('futurePurchases').checked=false;
+  if(changedId==='futurePurchases'&&$('futurePurchases').checked) $('deleteAfterOrder').checked=false;
+  const accepted=config?.capture_mode==='LIMITED_HELPER_PILOT' ? $('pilotUnderstood').checked : Boolean(retentionChoice());
+  $('create').disabled=!config?.capture_enabled||!accepted;
 }
 
 async function selectSession(id) {
@@ -179,18 +232,46 @@ async function initialize() {
     const hash=new URLSearchParams(location.hash.slice(1)); const ticket=hash.get('ticket');
     if(ticket){history.replaceState(null,'',location.pathname); await api('/api/session/exchange',{method:'POST',headers:csrfHeaders(),body:JSON.stringify({ticket})});}
     config=await api('/api/config');
+    const pilotMode=config.capture_mode==='LIMITED_HELPER_PILOT';
+    $('customerConsentPanel').hidden=pilotMode;
+    $('pilotConsentPanel').hidden=!pilotMode;
+    if(pilotMode){
+      $('pilotNotice').textContent=config.pilot_consent_notice||'';
+      $('pilotConsentDocument').href=config.pilot_consent_document_path||'/pilot-consent';
+      if(!config.pilot_access){
+        $('pilotAccessMessage').hidden=false;
+        $('pilotAccessMessage').textContent='This Wix sign-in email is not on the pilot invitation list. Send this email address to Sam to request an invitation.';
+        if(config.account_email){
+          $('pilotEmail').textContent=config.account_email;
+          $('pilotEmailRow').hidden=false;
+        }
+      }
+    }
     $('consentNotice').textContent=config.consent_notice;
+    $('deleteChoiceText').textContent=config.consent_choices?.delete_after_order||'';
+    $('futureChoiceText').textContent=config.consent_choices?.future_purchases||'';
+    $('developmentChoiceText').textContent=config.consent_choices?.development_use||'';
+    $('consentDocument').href=config.consent_document_path||'/consent';
     $('consentDraft').hidden=!config.consent_draft;
-    if(!config.capture_enabled) $('setupBlock').textContent=config.consent_draft
-      ? 'New sessions are disabled until the consent wording and all eight section prompts are approved.'
-      : 'New sessions are disabled until all eight section prompts are configured.';
+    if(!config.capture_enabled) $('setupBlock').textContent=pilotMode
+      ? (!config.prompts_ready ? 'Pilot recording is disabled until all eight prompts are available.' : 'Pilot access is limited to invited Wix sign-in emails.')
+      : (config.consent_draft
+        ? 'New sessions are disabled until the consent wording and all eight section prompts are approved.'
+        : 'New sessions are disabled until all eight section prompts are configured.');
     $('setupBlock').hidden=config.capture_enabled;
-    $('consent').addEventListener('change',()=>{$('create').disabled=!config.capture_enabled||!$('consent').checked;});
-    $('create').disabled=!config.capture_enabled;
+    $('deleteAfterOrder').addEventListener('change',()=>syncConsentControls('deleteAfterOrder'));
+    $('futurePurchases').addEventListener('change',()=>syncConsentControls('futurePurchases'));
+    $('developmentUse').addEventListener('change',()=>syncConsentControls('developmentUse'));
+    $('pilotUnderstood').addEventListener('change',()=>syncConsentControls('pilotUnderstood'));
+    $('create').disabled=!config.capture_enabled||(pilotMode?!$('pilotUnderstood').checked:!retentionChoice());
     $('create').addEventListener('click',async()=>{
       $('create').disabled=true; setStatus('Creating your session…','account');
-      try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify({consent:true,consent_version:config.consent_version})});await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
-      catch(error){setStatus(error.message);$('create').disabled=!$('consent').checked;}
+      const selectedRetention=retentionChoice();
+      const consentBody=pilotMode
+        ? {pilot_consent:{accepted:true,version:config.pilot_consent_version,understood:$('pilotUnderstood').checked}}
+        : {consent:{accepted:true,version:config.consent_version,retention_choice:selectedRetention,development_use:$('developmentUse').checked}};
+      try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify(consentBody)});await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
+      catch(error){setStatus(error.message);$('create').disabled=!config.capture_enabled||(pilotMode?!$('pilotUnderstood').checked:!retentionChoice());}
     });
     await refreshSessions();
     $('account').textContent='Signed in to Project X.';
