@@ -261,11 +261,17 @@ async function playSavedTake(sectionId,take) {
     if(request!==savedPlaybackRequest)return;
     if(savedTakeUrl)URL.revokeObjectURL(savedTakeUrl);
     savedTakeUrl=URL.createObjectURL(audio);
+    const player=$('savedPlayback');
     $('savedPlaybackTitle').textContent=`Saved Take ${take.take} · Section ${sectionId}`;
-    $('savedPlayback').src=savedTakeUrl;
-    $('savedPlayback').load();
+    player.src=savedTakeUrl;
+    player.load();
     $('savedTakePlayback').hidden=false;
-    setStatus(`Take ${take.take} is ready. Press play below to listen.`,'sectionStatus');
+    try {
+      await player.play();
+      if(request===savedPlaybackRequest)setStatus(`Playing Take ${take.take}.`,'sectionStatus');
+    } catch(playError) {
+      if(request===savedPlaybackRequest)setStatus(`Take ${take.take} is ready. If playback did not start, tap play below.`,'sectionStatus');
+    }
   } catch(error) {
     if(request===savedPlaybackRequest)setStatus(error.message,'sectionStatus');
   }

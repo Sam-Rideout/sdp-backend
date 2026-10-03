@@ -69,6 +69,8 @@ test('recording page shows exactly three unselected consent checkboxes', () => {
   assert.match(page, /remove\.addEventListener\('click',\(\)=>deleteSavedTake\(section\.id,take\.clip_id\)\)/);
   assert.match(page, /Use Listen to hear a saved take, or Delete beside it/);
   assert.match(page, /async function playSavedTake\(sectionId,take\)/);
+  assert.match(page, /await player\.play\(\)/);
+  assert.match(page, /If playback did not start, tap play below/);
   assert.match(page, /clips\/\$\{encodeURIComponent\(take\.clip_id\)\}/);
   assert.match(page, /credentials:'same-origin'/);
   assert.match(page, /function clearSavedPlayback\(\)/);
