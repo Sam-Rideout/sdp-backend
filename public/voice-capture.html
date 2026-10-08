@@ -214,7 +214,7 @@ async function api(url, options={}) {
 }
 function csrfHeaders() { return { 'Content-Type':'application/json' }; }
 function durationLabel(seconds) { const n=Math.max(0,Math.round(seconds||0)); return `${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`; }
-function sessionTakes(section) { return activeSession?.sections?.[String(section)]?.takes || []; }
+function sessionTakes(section) { return Number(section)===9 ? (activeSession?.special_message?.takes || []) : (activeSession?.sections?.[String(section)]?.takes || []); }
 function sectionFlag(count) {
   if(count===0)return {state:'none',label:'STANDARD · 0 takes'};
   if(count===1)return {state:'one',label:'YELLOW · 1 take'};
@@ -228,7 +228,8 @@ function updateSectionFlag(section) {
 }
 function configuredSections() { return (config?.sections || []).filter(section=>section.configured); }
 function allSectionsHaveTakes() {
-  return config?.sections?.length===8 && config.sections.every(section=>
+  const required=(config?.sections || []).filter(section=>!section.optional);
+  return required.length===8 && required.every(section=>
     section.configured && sessionTakes(section.id).length>0
   );
 }
@@ -333,6 +334,8 @@ function renderSections(selectedId=activeSectionId) {
   if(next){activeSectionId=next.id;menu.value=String(next.id);updateSectionMenuColor();showSection(next.id);}
 }
 function handleSectionMenuChange() {
+  if(busy){$('sectionSelect').value=String(activeSectionId);return;}
+  if(takeBlob){$('sectionSelect').value=String(activeSectionId);setStatus('Save or discard this take before choosing another section.','sectionStatus');return;}
   activeSectionId=Number($('sectionSelect').value);
   updateSectionMenuColor();showSection(activeSectionId);
 }
@@ -340,7 +343,7 @@ function handleSectionMenuChange() {
 function showSection(id) {
   const section=config.sections.find(item=>item.id===Number(id));
   if(!section||!section.configured) return;
-  $('sectionTitle').textContent=`Section ${section.id} of ${config.sections.length}`;
+  $('sectionTitle').textContent=section.optional ? 'Section 9 · Optional' : `Section ${section.id} of 8`;
   $('savedTakeHeading').textContent=`Saved takes · Section ${section.id}`;
   updateSectionFlag(section);
   $('promptTitle').textContent=section.title;
@@ -411,6 +414,8 @@ async function initialize() {
     const hash=new URLSearchParams(location.hash.slice(1)); const ticket=hash.get('ticket');
     if(ticket){history.replaceState(null,'',location.pathname); await api('/api/session/exchange',{method:'POST',headers:csrfHeaders(),body:JSON.stringify({ticket})});}
     config=await api('/api/config');
+    // Keep the eight required training prompts unchanged.
+    if(config.special_message)config.sections.push(config.special_message);
     const pilotMode=config.capture_mode==='LIMITED_HELPER_PILOT';
     $('customerConsentPanel').hidden=pilotMode;
     $('pilotConsentPanel').hidden=!pilotMode;
@@ -491,7 +496,8 @@ async function startRecording() {
       setStatus('Recording is active. Tap Stop when you finish this take.','sectionStatus');
       tick=setInterval(()=>{
         const sec=Math.floor((Date.now()-startedAt)/1000);$('timer').textContent=durationLabel(sec);
-        if(sec>=300)stopRecording(false);
+        const limit=activeSectionId===9 ? 8 : 300;
+        if((Date.now()-startedAt)/1000>=limit)stopRecording(false);
       },250);
       void startAudioMeter();
     };
@@ -526,7 +532,7 @@ function stopRecording(interrupted) {
 
 async function saveTake() {
   if(!takeBlob||busy)return;
-  busy=true;$('saveTake').disabled=true;$('discardTake').disabled=true;setStatus('Uploading and saving this take…','sectionStatus');
+  busy=true;$('sectionSelect').disabled=true;$('record').disabled=true;$('saveTake').disabled=true;$('discardTake').disabled=true;setStatus('Uploading and saving this take…','sectionStatus');
   try{
     const form=new FormData();form.append('section',String(activeSectionId));form.append('duration_seconds',String(takeDuration));
     const ext=takeBlob.type.includes('mp4')?'m4a':takeBlob.type.includes('ogg')?'ogg':takeBlob.type.includes('wav')?'wav':'webm';
@@ -537,7 +543,7 @@ async function saveTake() {
     $('meterCaption').textContent='The microphone level display activates during recording; moving bars show sound reaching the microphone.';
     showSection(activeSectionId);renderSections(activeSectionId);setStatus(`Saved as take ${data.clip.take}. You can record another take or choose another section.`, 'sectionStatus');
   }catch(error){setStatus(error.message,'sectionStatus');}
-  finally{busy=false;$('saveTake').disabled=false;$('discardTake').disabled=!takeBlob;$('record').disabled=activeSession.status!=='RECORDING';}
+  finally{busy=false;$('sectionSelect').disabled=activeSession.status!=='RECORDING';$('saveTake').disabled=false;$('discardTake').disabled=!takeBlob;$('record').disabled=activeSession.status!=='RECORDING';}
 }
 
 function discardTake() {
@@ -583,7 +589,8 @@ async function deleteSavedTake(sectionId,clipId) {
 }
 
 async function finishSession() {
-  if(!confirm('Finish this session? You will no longer be able to add recordings to it.'))return;
+  if(busy||takeBlob){setStatus('Save or discard the current take before finishing this session.','sectionStatus');return;}
+  if(!confirm('Finish this session? Section 9 is optional. You will no longer be able to add recordings to it.'))return;
   $('finish').disabled=true;
   try{const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/complete`,{method:'POST'});activeSession=data.session;await selectSession(activeSession.session_id);setStatus('Session marked ready for verified transfer.','sectionStatus');}
   catch(error){setStatus(error.message,'sectionStatus');$('finish').disabled=false;}

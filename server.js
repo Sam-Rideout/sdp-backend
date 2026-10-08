@@ -15,6 +15,14 @@ const MAX_CLIP_BYTES = 25 * 1024 * 1024;
 const MAX_SESSION_BYTES = 120 * 1024 * 1024;
 const MAX_STORE_BYTES = 850 * 1024 * 1024;
 const SECTION_COUNT = 8;
+const SPECIAL_MESSAGE = Object.freeze({
+  id: 9, title: 'Special Message (Optional)', configured: true, optional: true,
+  capture_seconds: 8, finished_seconds: 6,
+  instructions: 'Write a short, sentimental birthday message that feels personal and warm. Record it in your own voice. Recording stops automatically after eight seconds. Your full take is saved separately; the finished message will be edited to fit within six seconds at the end of the song. You may skip this section.'
+});
+// Allow a small browser stop-event delay. This validates the capture clock,
+// not the decoded media duration; the full original audio is never trimmed here.
+const SPECIAL_MESSAGE_MAX_REPORTED_SECONDS = 8.5;
 const ROOT = path.resolve(__dirname);
 const DATA_DIR = path.resolve(process.env.VOICE_DATA_DIR ||
   (process.env.RENDER ? '/var/data/project-x-voice-capture' : './voice-data'));
@@ -207,7 +215,7 @@ async function writeManifest(manifest) {
 }
 
 function allClips(manifest) {
-  return Object.values(manifest.sections || {}).flatMap(section => section.takes || []);
+  return [...Object.values(manifest.sections || {}).flatMap(section => section.takes || []), ...(manifest.special_message?.takes || [])];
 }
 
 function publicManifest(manifest) {
@@ -330,6 +338,7 @@ app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
         pilot_consent_draft: false,
         prompts_ready: promptsReady,
         capture_enabled: pilotAccess,
+        special_message: SPECIAL_MESSAGE,
         sections: config.sections.map(section => ({
           id: section.id, title: section.title, instructions: section.instructions,
           configured: Boolean(section.title && section.instructions)
@@ -348,7 +357,8 @@ app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
       consent_draft: !consentApproved,
       prompts_ready: promptsReady,
       capture_enabled: consentApproved && promptsReady,
-      sections: config.sections.map(section => ({
+      special_message: SPECIAL_MESSAGE,
+        sections: config.sections.map(section => ({
         id: section.id, title: section.title, instructions: section.instructions,
         configured: Boolean(section.title && section.instructions)
       }))
@@ -527,13 +537,15 @@ app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigi
       const manifest = req.manifest;
       if (manifest.status !== 'RECORDING') return res.status(409).json({ error: 'This session no longer accepts recordings.' });
       const section = Number(req.body?.section);
-      if (!Number.isInteger(section) || section < 1 || section > SECTION_COUNT) return res.status(400).json({ error: 'Section must be between 1 and 8.' });
+      if (!Number.isInteger(section) || section < 1 || section > SPECIAL_MESSAGE.id) return res.status(400).json({ error: 'Section must be between 1 and 9.' });
+      const isMessage = section === SPECIAL_MESSAGE.id;
       const promptConfig = JSON.parse(await fsp.readFile(SECTION_CONFIG, 'utf8'));
-      const selectedSection = promptConfig.sections.find(item => item.id === section);
+      const selectedSection = isMessage ? SPECIAL_MESSAGE : promptConfig.sections.find(item => item.id === section);
       if (!selectedSection || !selectedSection.title || !selectedSection.instructions) return res.status(409).json({ error: 'This section prompt is not configured yet.' });
       if (!req.file || !req.file.buffer?.length) return res.status(400).json({ error: 'Choose a completed recording to upload.' });
       const duration = Number(req.body?.duration_seconds);
       if (!Number.isFinite(duration) || duration <= 0 || duration > 300) return res.status(400).json({ error: 'Recording duration must be between 1 second and 5 minutes.' });
+      if (isMessage && duration > SPECIAL_MESSAGE_MAX_REPORTED_SECONDS) return res.status(400).json({ error: 'The special message must be recorded within eight seconds. Please re-record a shorter message.' });
       const ext = clipExtension(req.file.mimetype);
       if (!ext) return res.status(415).json({ error: 'This recording format is not supported by the server.' });
       const current = allClips(manifest);
@@ -542,16 +554,19 @@ app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigi
       if (sessionBytes + req.file.size > MAX_SESSION_BYTES) return res.status(413).json({ error: 'This session has reached its storage limit.' });
       if ((await directoryBytes(DATA_DIR)) + req.file.size > MAX_STORE_BYTES) return res.status(507).json({ error: 'Voice-capture storage is full. Contact Project X before recording more.' });
 
-      const takes = manifest.sections[String(section)].takes;
+      if (isMessage && !manifest.special_message) manifest.special_message = { purpose: 'BIRTHDAY_OUTRO', excluded_from_training: true, capture_seconds: 8, finished_seconds: 6, takes: [] };
+      const takes = isMessage ? manifest.special_message.takes : manifest.sections[String(section)].takes;
       const takeNumber = takes.reduce((maximum, item) => Math.max(maximum, Number.isInteger(item.take) ? item.take : 0), 0) + 1;
       const clipId = crypto.randomUUID();
-      const relativePath = path.join('clips', `section-${String(section).padStart(2, '0')}`, `take-${String(takeNumber).padStart(2, '0')}${ext}`);
+      const relativePath = path.join(isMessage ? 'special-message' : 'clips', isMessage ? 'original-takes' : `section-${String(section).padStart(2, '0')}`, `take-${String(takeNumber).padStart(2, '0')}${ext}`);
       const target = path.join(sessionPath(manifest.session_id), relativePath);
       await fsp.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
       await fsp.writeFile(target, req.file.buffer, { flag: 'wx', mode: 0o600 });
       const clip = {
         clip_id: clipId,
         section: section,
+        purpose: isMessage ? 'BIRTHDAY_OUTRO' : 'VOICE_TRAINING',
+        excluded_from_training: isMessage,
         take: takeNumber,
         file_name: path.basename(relativePath),
         relative_path: relativePath.split(path.sep).join('/'),
@@ -575,7 +590,7 @@ app.delete('/api/sessions/:sessionId/clips/:clipId', authenticatedMember, requir
 
   let takes = null;
   let takeIndex = -1;
-  for (const section of Object.values(manifest.sections || {})) {
+  for (const section of [...Object.values(manifest.sections || {}), manifest.special_message].filter(Boolean)) {
     if (!Array.isArray(section.takes)) continue;
     const index = section.takes.findIndex(item => item.clip_id === req.params.clipId);
     if (index >= 0) { takes = section.takes; takeIndex = index; break; }
