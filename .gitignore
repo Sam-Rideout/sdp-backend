@@ -1,0 +1,6 @@
+/node_modules/
+/PX_Profile_Status_Backup_*/
+/voice-data/
+.env
+.env.*
+!.env.example

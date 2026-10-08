@@ -693,6 +693,12 @@ app.post('/api/transfer/sessions/:sessionId/confirm', transferAuth, express.json
   } catch (error) { next(error); }
 });
 
+// Readiness is published only by the protected local processing bridge.
+require('./voice-profile-status').attachProfileStatus(app, {
+  dataDir: DATA_DIR, sessionDir: SESSION_DIR, readManifest, safeSessionId,
+  verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth
+});
+
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
   if (error instanceof multer.MulterError) {
