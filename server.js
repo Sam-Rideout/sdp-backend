@@ -224,9 +224,20 @@ function publicManifest(manifest) {
   return copy;
 }
 
+const sessionRequests = new Set();
+function lockSessionRequest(req, res) {
+  const id=req.params.sessionId;
+  if(sessionRequests.has(id)) {res.status(409).json({error:'This session is busy. Wait for the current action to finish, then try again.'});return false;}
+  sessionRequests.add(id);
+  const release=()=>sessionRequests.delete(id);
+  res.once('finish',release);res.once('close',release);
+  return true;
+}
+
 async function ownedManifest(req, res, next) {
   const id = req.params.sessionId;
   if (!safeSessionId(id)) return res.status(404).json({ error: 'Session not found.' });
+  if (!lockSessionRequest(req,res)) return;
   try {
     const manifest = await readManifest(id);
     if (manifest.owner_member_id !== req.memberId) return res.status(404).json({ error: 'Session not found.' });
@@ -257,6 +268,7 @@ async function transferAuth(req, res, next) {
 async function transferManifest(req, res, next) {
   const id = req.params.sessionId;
   if (!safeSessionId(id)) return res.status(404).json({ error: 'Session not found.' });
+  if (!lockSessionRequest(req,res)) return;
   try {
     const manifest = await readManifest(id);
     if (!['READY_FOR_TRANSFER', 'TRANSFERRED_AUDIO_DELETED'].includes(manifest.status)) {
@@ -403,7 +415,7 @@ app.get('/api/sessions', authenticatedMember, requireCaptureAccess, async (req, 
       if (!entry.isDirectory() || !safeSessionId(entry.name)) continue;
       try {
         const manifest = await readManifest(entry.name);
-        if (manifest.owner_member_id === req.memberId && (manifest.program || 'CUSTOMER') === req.captureProgram) sessions.push(publicManifest(manifest));
+        if (manifest.status !== 'DELETE_PENDING' && manifest.owner_member_id === req.memberId && (manifest.program || 'CUSTOMER') === req.captureProgram) sessions.push(publicManifest(manifest));
       } catch { /* Ignore incomplete/unreadable folders; never expose them. */ }
     }
     sessions.sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -528,6 +540,23 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
 
 app.get('/api/sessions/:sessionId', authenticatedMember, requireCaptureAccess, ownedManifest, (req, res) => {
   res.json({ session: publicManifest(req.manifest) });
+});
+
+// Delete only server capture data. Local transfers and snapshots are outside this action.
+app.delete('/api/sessions/:sessionId', authenticatedMember, requireSameOrigin, requireCaptureAccess, ownedManifest, async (req,res,next)=>{
+  try {
+    const manifest=req.manifest;
+    if(!['RECORDING','READY_FOR_TRANSFER','DELETE_PENDING'].includes(manifest.status))
+      return res.status(409).json({error:'This session has already been transferred. Contact Project X to request deletion of local recordings or a voice profile.'});
+    // Persist cancellation before removal, so a failed cleanup cannot be transferred.
+    manifest.status='DELETE_PENDING';manifest.updated_at=new Date().toISOString();
+    await writeManifest(manifest);
+    const root=sessionPath(manifest.session_id);
+    await fsp.rm(root,{recursive:true,force:true});
+    try {await fsp.access(root);throw new Error('Session deletion could not be verified.');}
+    catch(error){if(error.code!=='ENOENT')throw error;}
+    res.json({ok:true,deleted_session_id:manifest.session_id,active_storage_deleted:true});
+  }catch(error){next(error);}
 });
 
 app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigin, requireCaptureAccess, ownedManifest,

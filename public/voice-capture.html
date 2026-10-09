@@ -109,6 +109,7 @@
       <label for="sessions">Continue a session</label>
       <select id="sessions"></select>
       <button id="resume" class="quiet" type="button">Open selected session</button>
+      <button id="deleteSelectedSession" class="danger" type="button" style="margin-top:10px">Delete selected session</button>
       <hr>
     </div>
     <div id="customerConsentPanel">
@@ -193,6 +194,8 @@
       <button id="finish" class="quiet" type="button">Finish this session</button>
       <button id="logout" class="quiet" type="button">Sign out of recorder</button>
     </div>
+    <button id="deleteSession" class="danger" type="button" style="margin-top:14px">Delete Entire Session</button>
+    <p class="help">Deletes this session and its recordings from active Render storage. Local copies and snapshots are not deleted by this button.</p>
   </main>
   <p id="globalStatus" class="status" role="alert" aria-live="assertive"></p>
 </div>
@@ -238,7 +241,8 @@ function updateFinishStandard() {
   $('finishStandard').hidden=!ready;
   $('finishStandardTitle').textContent=config?.finish_standard?.title||'Finish Standard';
   $('finishStandardText').textContent=config?.finish_standard?.text||'';
-  $('finish').disabled=activeSession.status!=='RECORDING'||!ready;
+  $('finish').disabled=activeSession.status!=='RECORDING'||!ready||busy||Boolean(takeBlob);
+  $('deleteSession').disabled=busy||!['RECORDING','READY_FOR_TRANSFER','DELETE_PENDING'].includes(activeSession.status);
 }
 function releaseMic() { if(stream){stream.getTracks().forEach(track=>track.stop());stream=null;} }
 function clearSavedPlayback() {
@@ -459,6 +463,8 @@ async function initialize() {
     });
     await refreshSessions();
     $('account').textContent='Signed in to Project X.';
+    $('deleteSession').addEventListener('click',()=>deleteEntireSession(activeSession?.session_id));
+    $('deleteSelectedSession').addEventListener('click',()=>deleteEntireSession($('sessions').value));
     $('resume').addEventListener('click',async()=>{try{await selectSession($('sessions').value);}catch(error){setStatus(error.message);}});
     $('sectionSelect').addEventListener('change',handleSectionMenuChange);
     $('record').addEventListener('click',startRecording);
@@ -474,7 +480,7 @@ async function initialize() {
 async function startRecording() {
   if(busy||!activeSession||activeSession.status!=='RECORDING')return;
   if(takeBlob&&!confirm('Discard the unsaved take and record a new one?'))return;
-  busy=true; $('record').disabled=true; $('stop').disabled=true; $('review').hidden=true; $('sectionSelect').disabled=true;$('timer').textContent='00:00';
+  busy=true; updateFinishStandard(); $('record').disabled=true; $('stop').disabled=true; $('review').hidden=true; $('sectionSelect').disabled=true;$('timer').textContent='00:00';
   setRecordingIndicator('starting','Connecting to microphone','Recording has not started yet. Allow microphone access if your browser asks.');
   setStatus('Opening microphone…','sectionStatus');
   try{
@@ -508,7 +514,7 @@ async function startRecording() {
       $('timer').textContent=durationLabel(takeDuration);
       const blob=new Blob(chunks,{type:mediaRecorder.mimeType||chunks[0]?.type||'audio/webm'});chunks=[];
       if(!blob.size){setRecordingIndicator('error','No audio captured','Recording stopped without audio. Check the microphone and try again.');setStatus('No audio was recorded. Please try again.','sectionStatus');$('record').disabled=false;return;}
-      takeBlob=blob; if(takeUrl)URL.revokeObjectURL(takeUrl);takeUrl=URL.createObjectURL(blob);
+      takeBlob=blob; updateFinishStandard(); if(takeUrl)URL.revokeObjectURL(takeUrl);takeUrl=URL.createObjectURL(blob);
       $('playback').src=takeUrl;$('review').hidden=false;$('record').disabled=false;
       const stoppedMessage=recordingInterrupted?'Recording stopped unexpectedly. Review the recovered take below before saving.':'Recording stopped. Review the take below, then save it.';
       setRecordingIndicator('ready','Recording stopped',stoppedMessage);
@@ -532,7 +538,7 @@ function stopRecording(interrupted) {
 
 async function saveTake() {
   if(!takeBlob||busy)return;
-  busy=true;$('sectionSelect').disabled=true;$('record').disabled=true;$('saveTake').disabled=true;$('discardTake').disabled=true;setStatus('Uploading and saving this take…','sectionStatus');
+  busy=true;updateFinishStandard();$('sectionSelect').disabled=true;$('record').disabled=true;$('saveTake').disabled=true;$('discardTake').disabled=true;setStatus('Uploading and saving this take…','sectionStatus');
   try{
     const form=new FormData();form.append('section',String(activeSectionId));form.append('duration_seconds',String(takeDuration));
     const ext=takeBlob.type.includes('mp4')?'m4a':takeBlob.type.includes('ogg')?'ogg':takeBlob.type.includes('wav')?'wav':'webm';
@@ -543,7 +549,7 @@ async function saveTake() {
     $('meterCaption').textContent='The microphone level display activates during recording; moving bars show sound reaching the microphone.';
     showSection(activeSectionId);renderSections(activeSectionId);setStatus(`Saved as take ${data.clip.take}. You can record another take or choose another section.`, 'sectionStatus');
   }catch(error){setStatus(error.message,'sectionStatus');}
-  finally{busy=false;$('sectionSelect').disabled=activeSession.status!=='RECORDING';$('saveTake').disabled=false;$('discardTake').disabled=!takeBlob;$('record').disabled=activeSession.status!=='RECORDING';}
+  finally{busy=false;const message=$('sectionStatus').textContent;renderSections(activeSectionId);setStatus(message,'sectionStatus');$('sectionSelect').disabled=activeSession.status!=='RECORDING';$('saveTake').disabled=false;$('discardTake').disabled=!takeBlob;}
 }
 
 function discardTake() {
@@ -555,7 +561,7 @@ function discardTake() {
   $('timer').textContent='00:00';
   setRecordingIndicator('idle','Take discarded','This unsaved take was removed and was not uploaded. Record another take when ready.');
   setStatus('Unsaved take discarded. It was not uploaded to Render.','sectionStatus');
-  $('record').disabled=activeSession?.status!=='RECORDING';
+  $('record').disabled=activeSession?.status!=='RECORDING';updateFinishStandard();
 }
 
 async function deleteSavedTake(sectionId,clipId) {
@@ -564,7 +570,7 @@ async function deleteSavedTake(sectionId,clipId) {
   if(!clip)return;
   const confirmed=confirm(`Delete saved Take ${clip.take} from Section ${sectionId}? It will be removed from this session and active Render storage. Encrypted backups may retain a copy under the retention terms in your notice.`);
   if(!confirmed)return;
-  busy=true;$('sectionSelect').disabled=true;$('record').disabled=true;
+  busy=true;updateFinishStandard();$('sectionSelect').disabled=true;$('record').disabled=true;
   setStatus(`Deleting saved Take ${clip.take}…`,'sectionStatus');
   let resultMessage='';
   try {
@@ -588,12 +594,40 @@ async function deleteSavedTake(sectionId,clipId) {
   }
 }
 
+async function deleteEntireSession(id) {
+  if(busy||!id)return;
+  if(!confirm('Delete this entire session and all its saved recordings, including the optional birthday message? Any unsaved take on this page will also be discarded. This cannot be undone. Active Render storage will be deleted; local copies and snapshots are not deleted by this action.'))return;
+  busy=true;
+  $('deleteSession').disabled=true;$('deleteSelectedSession').disabled=true;$('resume').disabled=true;$('create').disabled=true;
+  $('record').disabled=true;$('sectionSelect').disabled=true;$('finish').disabled=true;
+  setStatus('Deleting the session…');
+  let deleted=false;
+  try {
+    await api(`/api/sessions/${encodeURIComponent(id)}`,{method:'DELETE'});
+    deleted=true;
+    if(activeSession?.session_id===id){
+      clearSavedPlayback();releaseMic();clearTick();resetAudioMeter();takeBlob=null;
+      if(takeUrl){URL.revokeObjectURL(takeUrl);takeUrl=null;}
+      $('playback').removeAttribute('src');$('playback').load();$('review').hidden=true;
+      activeSession=null;$('captureCard').hidden=true;
+    }
+    await refreshSessions();
+    setStatus('Session deleted from active Render storage. Local copies and snapshots were not deleted.');
+  } catch(error){setStatus(deleted ? 'Session deleted, but the session list could not refresh. Reload the page.' : error.message);}
+  finally {
+    busy=false;$('deleteSelectedSession').disabled=false;$('resume').disabled=false;syncConsentControls();
+    if(activeSession){renderSections(activeSectionId);$('sectionSelect').disabled=activeSession.status!=='RECORDING';}
+    $('deleteSession').disabled=!activeSession||!['RECORDING','READY_FOR_TRANSFER','DELETE_PENDING'].includes(activeSession.status);
+  }
+}
 async function finishSession() {
   if(busy||takeBlob){setStatus('Save or discard the current take before finishing this session.','sectionStatus');return;}
   if(!confirm('Finish this session? Section 9 is optional. You will no longer be able to add recordings to it.'))return;
-  $('finish').disabled=true;
-  try{const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/complete`,{method:'POST'});activeSession=data.session;await selectSession(activeSession.session_id);setStatus('Session marked ready for verified transfer.','sectionStatus');}
-  catch(error){setStatus(error.message,'sectionStatus');$('finish').disabled=false;}
+  busy=true;updateFinishStandard();$('sectionSelect').disabled=true;$('record').disabled=true;
+  let message='';
+  try{const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/complete`,{method:'POST'});activeSession=data.session;message='Session complete. Recordings are locked and ready for verified transfer.';}
+  catch(error){message=error.message;}
+  finally{busy=false;renderSections(activeSectionId);$('sectionSelect').disabled=activeSession.status!=='RECORDING';$('sessionLabel').textContent=`Session ${activeSession.session_id} · ${activeSession.status.replaceAll('_',' ')}`;setStatus(message,'sectionStatus');}
 }
 
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&mediaRecorder?.state==='recording')stopRecording(true);});
