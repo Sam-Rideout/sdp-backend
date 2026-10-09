@@ -91,6 +91,23 @@
   [hidden] { display:none!important; }
   @media(max-width:460px) { .row { grid-template-columns:1fr; } header,.card { padding:14px; } }
   @media(prefers-reduced-motion:reduce) { [data-state="recording"] .recording-dot { animation:none; } }
+/* PX_READABLE_SECTION_PICKER_STYLE */
+#sectionPickerToggle { width:100%;text-align:left;background:#17212c;color:#fff;border:2px solid #bcc9d6;padding:14px 16px;min-height:72px;font-size:1rem; }
+#sectionPickerSelected,#sectionPickerStatus { display:block;white-space:normal;line-height:1.45; }
+#sectionPickerSelected { font-size:1.08rem;font-weight:700; }
+#sectionPickerStatus { margin-top:5px;color:#e2eaf2;font-weight:400; }
+#sectionPickerList { margin-top:8px;max-height:65vh;overflow-y:auto;border:2px solid #bcc9d6;border-radius:10px;background:#111820;padding:6px; }
+#sectionPickerList .section-picker-row { display:block;width:100%;text-align:left;white-space:normal;background:#17212c;color:#fff;border:1px solid #62778b;border-radius:8px;padding:14px;margin:0 0 8px;min-height:88px; }
+#sectionPickerList .section-picker-row[aria-pressed="true"] { border:3px solid #fff;background:#25374a; }
+.section-picker-number,.section-picker-title,.section-picker-progress { display:block;line-height:1.45; }
+.section-picker-number { font-size:.92rem;color:#d5e2ee;font-weight:400; }
+.section-picker-title { font-size:1.12rem;font-weight:700;margin:3px 0; }
+.section-picker-progress { font-size:1rem;font-weight:400;color:#fff; }
+#sectionPickerList [data-state="one"] .section-picker-progress { color:#ffe08a; }
+#sectionPickerList [data-state="complete"] .section-picker-progress { color:#a9e2c0; }
+#sectionPickerToggle:focus-visible,.section-picker-row:focus-visible { outline:3px solid #fff;outline-offset:3px; }
+#higherRegisterReminder p { color:#f0e9e3;font-size:1rem;line-height:1.6; }
+
 </style>
 </head>
 <body>
@@ -147,12 +164,21 @@
   <main id="captureCard" class="card" hidden>
     <div class="progress">
       <h2 id="sectionTitle">Section</h2>
-      <span id="sectionFlag" class="section-flag" data-state="none">STANDARD · 0 takes</span>
+      <span id="sectionFlag" class="section-flag" data-state="none">Not recorded</span>
     </div>
     <p id="sessionLabel" class="muted"></p>
-    <label for="sectionSelect">Choose a section</label>
-    <select id="sectionSelect"></select>
-    <p class="flag-legend"><strong>Section progress</strong><span class="standard-key">WHITE · STANDARD = 0 saved takes</span> · <span class="yellow-key">YELLOW = 1 saved take</span> · <span class="green-key">GREEN = 2 or more saved takes</span>. Each section dropdown option shows its status and count.</p>
+    <aside id="higherRegisterReminder" class="prompt" aria-labelledby="higherRegisterTitle">
+      <h3 id="higherRegisterTitle">Give your higher notes extra attention</h3>
+      <p>Spend a little extra time singing in the higher part of your comfortable range. These notes can be harder for your voice clone to match. Sing clearly and steadily, and save an extra recording if you can. Keep the notes comfortable rather than forcing them.</p>
+    </aside>
+    <p id="sectionPickerLabel"><strong>Choose a recording section</strong></p>
+    <select id="sectionSelect" hidden aria-hidden="true" tabindex="-1"></select>
+    <button id="sectionPickerToggle" type="button" aria-labelledby="sectionPickerLabel sectionPickerSelected" aria-expanded="false" aria-controls="sectionPickerList">
+      <span id="sectionPickerSelected">Choose a section</span>
+      <span id="sectionPickerStatus"></span>
+    </button>
+    <div id="sectionPickerList" hidden role="group" aria-labelledby="sectionPickerLabel"></div>
+    <p class="flag-legend">Save at least one recording in each of Sections 1–8. Extra recordings are welcome. Section 9 is optional.</p>
     <section id="savedTakeManager" class="take-manager" aria-labelledby="savedTakeHeading">
       <h2 id="savedTakeHeading">Saved takes for this section</h2>
       <ul id="takeList" class="take-list"></ul>
@@ -227,9 +253,9 @@ function csrfHeaders() { return { 'Content-Type':'application/json' }; }
 function durationLabel(seconds) { const n=Math.max(0,Math.round(seconds||0)); return `${Math.floor(n/60)}:${String(n%60).padStart(2,'0')}`; }
 function sessionTakes(section) { return Number(section)===9 ? (activeSession?.special_message?.takes || []) : (activeSession?.sections?.[String(section)]?.takes || []); }
 function sectionFlag(count) {
-  if(count===0)return {state:'none',label:'STANDARD · 0 takes'};
-  if(count===1)return {state:'one',label:'YELLOW · 1 take'};
-  return {state:'complete',label:`GREEN · ${count} takes`};
+  if(count===0)return {state:'none',label:'Not recorded'};
+  if(count===1)return {state:'one',label:'1 recording saved'};
+  return {state:'complete',label:`${count} recordings saved`};
 }
 function updateSectionFlag(section) {
   const count=sessionTakes(section.id).length;
@@ -358,6 +384,7 @@ function showSection(id) {
   $('sectionTitle').textContent=section.optional ? 'Section 9 · Optional' : `Section ${section.id} of 8`;
   $('savedTakeHeading').textContent=`Saved takes · Section ${section.id}`;
   updateSectionFlag(section);
+  updateReadableSectionPicker();
   $('promptTitle').textContent=section.title;
   $('instructions').textContent=section.instructions;
   $('sectionStatus').textContent=`${sessionTakes(section.id).length} saved take${sessionTakes(section.id).length===1?'':'s'} for this section.`;
@@ -710,6 +737,52 @@ async function refreshCompletedTransferScreen() {
 $('startAfterTransfer').addEventListener('click',startAfterCompletedTransfer);
 setInterval(()=>{if(activeSession?.status==='READY_FOR_TRANSFER')refreshCompletedTransferScreen();},10000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshCompletedTransferScreen();});
+
+// PX_READABLE_SECTION_PICKER
+function sectionPickerTitle(section) {
+  return String(section.title||'').replace(/^\s*\d+:\d+\s*[â€“â€”-]\s*\d+:\d+\s*[Â·:]\s*/, '').trim();
+}
+function closeSectionPicker() {
+  $('sectionPickerList').hidden=true;
+  $('sectionPickerToggle').setAttribute('aria-expanded','false');
+}
+function updateReadableSectionPicker() {
+  const toggle=$('sectionPickerToggle');
+  toggle.disabled=$('sectionSelect').disabled||busy;
+  if(toggle.disabled)closeSectionPicker();
+  const section=config?.sections?.find(item=>item.id===Number(activeSectionId));
+  if(!section)return;
+  $('sectionPickerSelected').textContent=`Section ${section.id}${section.optional?' Â· Optional':''}: ${sectionPickerTitle(section)}`;
+  $('sectionPickerStatus').textContent=sectionFlag(sessionTakes(section.id).length).label;
+  const list=$('sectionPickerList');list.replaceChildren();
+  for(const item of config.sections) {
+    if(!item.configured)continue;
+    const row=document.createElement('button');row.type='button';row.className='section-picker-row';
+    row.setAttribute('aria-pressed',String(item.id===Number(activeSectionId)));
+    row.dataset.state=sectionFlag(sessionTakes(item.id).length).state;
+    const number=document.createElement('span');number.className='section-picker-number';number.textContent=`Section ${item.id}${item.optional?' Â· Optional':''}`;
+    const title=document.createElement('span');title.className='section-picker-title';title.textContent=sectionPickerTitle(item);
+    const progress=document.createElement('span');progress.className='section-picker-progress';progress.textContent=sectionFlag(sessionTakes(item.id).length).label;
+    row.append(number,title,progress);
+    row.addEventListener('click',()=>{
+      if($('sectionSelect').disabled||busy)return;
+      $('sectionSelect').value=String(item.id);
+      closeSectionPicker();handleSectionMenuChange();updateReadableSectionPicker();toggle.focus();
+    });
+    list.appendChild(row);
+  }
+}
+$('sectionPickerToggle').addEventListener('click',()=>{
+  if($('sectionSelect').disabled||busy)return;
+  const opening=$('sectionPickerList').hidden;
+  updateReadableSectionPicker();$('sectionPickerList').hidden=!opening;
+  $('sectionPickerToggle').setAttribute('aria-expanded',String(opening));
+  if(opening)$('sectionPickerList').querySelector('button[aria-pressed="true"]')?.focus();
+});
+$('sectionPickerList').addEventListener('keydown',event=>{
+  if(event.key==='Escape'){closeSectionPicker();$('sectionPickerToggle').focus();}
+});
+new MutationObserver(updateReadableSectionPicker).observe($('sectionSelect'),{attributes:true,attributeFilter:['disabled']});
 
 initialize();
 </script>
