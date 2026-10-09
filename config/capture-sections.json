@@ -1,12 +1,12 @@
 {
   "schema_version": "PX-TIER1-CAPTURE-PROMPTS-1.0.0",
   "prompts_approved": true,
-  "consent_version": "draft-2026-10-09-v3",
-  "consent_notice": "DRAFT - Choose one required option: delete your recordings and AI voice profile from active storage within 3 calendar days after this order is complete, or keep them for future purchases until you withdraw permission or request deletion. Either option authorizes recording, voice-model training, and use for your current order. Internal development use is optional and does not extend your selected retention period. After transfer to Project X's local PC is verified, audio is deleted from Render's active storage. This does not confirm deletion from snapshots or backups. Snapshot copies may remain for an unknown period. Read the full draft for details and the remaining requirements before customer capture is enabled.",
+  "consent_version": "customer-account-test-2026-10-09-v1",
+  "consent_notice": "ACCOUNT TRAINING TEST - Approved only for Sam Rideout's new recordings using the approved signed-in Wix account. This is a recording, voice-model training, certification, and song-conversion test, not a public customer launch. Choose one required retention option below. Optional development use does not extend retention. After local transfer is verified, audio is deleted from Render's active storage. Snapshot and backup copies may remain for an unknown period. The active-storage deletion deadline does not confirm removal of all copies. Read the full consent document before starting.",
   "consent_choices": {
-    "delete_after_order": "I agree to recording, AI voice-model training, and use for my current order. I choose deletion of my recordings and voice profile from active storage within 3 calendar days after this order is complete. This deadline does not apply to snapshots or backups; their permanent deletion timing is not confirmed.",
-    "future_purchases": "I agree to recording, AI voice-model training, and use for my current order. I choose to keep my recordings and voice profile for future purchases until I withdraw this permission or request deletion.",
-    "development_use": "Optional: I allow my recordings and voice profile to be used for internal product development and testing while retained under my chosen option. This does not extend retention or authorize public release, and it does not affect my current order."
+    "delete_after_order": "I agree to record my own voice and use it for AI voice-model training, certification, and my current song-conversion test. I choose deletion of my recordings and voice profile from active storage within 3 calendar days after this test is complete. This deadline does not apply to snapshots or backups; their permanent deletion timing is not confirmed.",
+    "future_purchases": "I agree to record my own voice and use it for AI voice-model training, certification, and my current song-conversion test. I choose to keep my recordings and voice profile for my future song-conversion purchases until I withdraw permission or request deletion.",
+    "development_use": "Optional: I allow my recordings and voice profile to be used for internal product development and testing while retained under my chosen option. This does not extend retention or authorize public release, and it does not affect my current song-conversion test."
   },
   "consent_document_path": "/consent",
   "sections": [
@@ -54,5 +54,7 @@
   "finish_standard": {
     "title": "Finish Standard",
     "text": "Target: approximately 10–20 minutes. A clean, natural performance with useful range, vowels, consonants, transitions, sustained notes, dynamics, and real singing is more valuable than a perfect performance. This voice capture should sound like the customer — relaxed, recognizable, and repeatable."
-  }
+  },
+  "customer_capture_scope": "ACCOUNT_TEST",
+  "customer_test_account_email": "sam.rideout.me@gmail.com"
 }

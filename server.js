@@ -73,6 +73,14 @@ function optionalAuthenticatedMember(req, res, next) {
   } catch (error) { next(error); }
 }
 
+function customerTestAccess(req, config = JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'))) {
+  const allowedEmail = normalizeEmail(config.customer_test_account_email);
+  return config.customer_capture_scope === 'ACCOUNT_TEST' &&
+    Boolean(req.memberId) && allowedEmail.length <= 254 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(allowedEmail) &&
+    normalizeEmail(req.memberEmail) === allowedEmail;
+}
+
 function requireCaptureAccess(req, res, next) {
   const mode = captureMode();
   if (mode === 'INVALID') return res.status(503).json({ error: 'Voice capture is disabled because its mode is invalid.' });
@@ -82,6 +90,7 @@ function requireCaptureAccess(req, res, next) {
     req.captureProgram = 'LIMITED_HELPER_PILOT';
     return next();
   }
+  if (!customerTestAccess(req)) return res.status(403).json({ error: 'Customer capture is restricted to the approved account training test.' });
   req.captureProgram = 'CUSTOMER';
   next();
 }
@@ -361,6 +370,8 @@ app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
     if (mode === 'INVALID') return res.json({ capture_mode: 'INVALID', capture_enabled: false, prompts_ready: false, sections: [] });
     res.json({
       capture_mode: 'CUSTOMER',
+      capture_scope: 'ACCOUNT_TEST',
+      customer_test_access: customerTestAccess(req, config),
       consent_version: configuredConsentVersion,
       consent_notice: config.consent_notice,
       consent_choices: config.consent_choices || {},
@@ -368,7 +379,7 @@ app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
       finish_standard: config.finish_standard || null,
       consent_draft: !consentApproved,
       prompts_ready: promptsReady,
-      capture_enabled: consentApproved && promptsReady,
+      capture_enabled: consentApproved && promptsReady && customerTestAccess(req, config),
       special_message: SPECIAL_MESSAGE,
         sections: config.sections.map(section => ({
         id: section.id, title: section.title, instructions: section.instructions,

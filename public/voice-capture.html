@@ -485,7 +485,9 @@ async function initialize() {
     $('consentDraft').hidden=!config.consent_draft;
     if(!config.capture_enabled) $('setupBlock').textContent=pilotMode
       ? (!config.prompts_ready ? 'Pilot recording is disabled until all eight prompts are available.' : 'Pilot access is limited to invited Wix sign-in emails.')
-      : (config.consent_draft
+      : (config.customer_test_access === false
+        ? 'Customer capture is currently available only to the approved account training test.'
+        : config.consent_draft
         ? 'New sessions are disabled until the consent wording and all eight section prompts are approved.'
         : 'New sessions are disabled until all eight section prompts are configured.');
     $('setupBlock').hidden=config.capture_enabled;
