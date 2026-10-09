@@ -692,6 +692,8 @@ app.post('/api/sessions/:sessionId/complete', authenticatedMember, requireSameOr
     const missing = config.sections.filter(section => section.title && section.instructions)
       .filter(section => !(manifest.sections[String(section.id)]?.takes?.length));
     if (missing.length) return res.status(400).json({ error: `Record at least one saved take for each active section. Still needed: ${missing.map(item => item.id).join(', ')}.` });
+    try { require('./voice-phone-flow').approvePhoneFinish(manifest, req.body, req.memberId, req.get('User-Agent') || ''); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
     manifest.status = 'READY_FOR_TRANSFER';
     manifest.completed_at = new Date().toISOString();
     manifest.updated_at = manifest.completed_at;
@@ -762,9 +764,15 @@ app.post('/api/transfer/sessions/:sessionId/confirm', transferAuth, express.json
 });
 
 // Readiness is published only by the protected local processing bridge.
-require('./voice-profile-status').attachProfileStatus(app, {
+const profileStatusBridge = require('./voice-profile-status').attachProfileStatus(app, {
   dataDir: DATA_DIR, sessionDir: SESSION_DIR, readManifest, safeSessionId,
   verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth
+});
+
+require('./voice-phone-flow').attachPhoneFlow(app, {
+  dataDir: DATA_DIR, sessionDir: SESSION_DIR, readManifest, safeSessionId,
+  transferAuth, authenticatedMember, requireSameOrigin, requireCaptureAccess,
+  ownedManifest, express, profileSnapshot: profileStatusBridge.snapshot
 });
 
 app.use((error, req, res, next) => {

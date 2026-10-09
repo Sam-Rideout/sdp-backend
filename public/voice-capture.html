@@ -154,6 +154,16 @@
     <p id="setupBlock" class="help" hidden>New sessions are disabled until the prompts and consent wording have been approved in the server configuration.</p>
   </section>
 
+  <section id="phoneTrainingCard" class="card" hidden aria-labelledby="phoneTrainingTitle">
+    <h2 id="phoneTrainingTitle">Your voice profile</h2>
+    <p id="phoneTrainingStatus" role="status" aria-live="polite"></p>
+    <p id="phoneTrainingSession" class="help"></p>
+    <p id="phoneTrainingProgress" class="help"></p>
+    <div id="phoneKeyOptions"></div>
+    <p id="phoneTrainingHelp" class="help">You can return to this page after signing in to the same account. Processing continues on Project X’s PC.</p>
+    <button id="phoneTrainingEnd" class="primary" type="button" hidden>End</button>
+  </section>
+
   <section id="transferCompleteCard" class="card" hidden aria-labelledby="transferCompleteTitle">
     <h2 id="transferCompleteTitle">Transfer Complete</h2>
     <p role="status" aria-live="polite">Your recordings were received and verified. The active audio copies were removed from Render.</p>
@@ -277,6 +287,7 @@ function updateFinishStandard() {
   $('finishStandardTitle').textContent=config?.finish_standard?.title||'Finish Standard';
   $('finishStandardText').textContent=config?.finish_standard?.text||'';
   $('finish').disabled=activeSession.status!=='RECORDING'||!ready||busy||Boolean(takeBlob);
+  $('finish').textContent=activeSession.program==='CUSTOMER'?'Finish & Start Training':'Finish this session';
   $('deleteSession').disabled=busy||!['RECORDING','READY_FOR_TRANSFER','DELETE_PENDING'].includes(activeSession.status);
 }
 function releaseMic() { if(stream){stream.getTracks().forEach(track=>track.stop());stream=null;} }
@@ -417,7 +428,7 @@ function showSection(id) {
 async function refreshSessions() {
   const data=await api('/api/sessions'); const sessions=data.sessions||[];
   const wrap=$('existingWrap'), select=$('sessions'); select.innerHTML='';
-  const resumable=sessions.filter(item=>['RECORDING','READY_FOR_TRANSFER'].includes(item.status));
+  const resumable=sessions.filter(item=>['RECORDING','READY_FOR_TRANSFER'].includes(item.status)||(item.program==='CUSTOMER'&&item.phone_training?.accepted===true&&item.status==='TRANSFERRED_AUDIO_DELETED'));
   if(resumable.length) {
     wrap.hidden=false;
     for(const item of resumable){const option=document.createElement('option'); option.value=item.session_id; option.textContent=`${new Date(item.created_at).toLocaleString()} · ${item.status.replaceAll('_',' ')}`; select.appendChild(option);}
@@ -445,6 +456,8 @@ function syncConsentControls(changedId='') {
 async function selectSession(id) {
   const data=await api(`/api/sessions/${encodeURIComponent(id)}`); activeSession=data.session;
   $('transferCompleteCard').hidden=true;
+  if(activeSession.program==='CUSTOMER'&&activeSession.phone_training?.accepted===true){showPhoneTraining(activeSession);return;}
+  $('phoneTrainingCard').hidden=true;
   if(activeSession.status==='TRANSFERRED_AUDIO_DELETED'){showTransferComplete(activeSession);return;}
   $('startCard').hidden=true; $('captureCard').hidden=false;
   $('sessionLabel').textContent=`Session ${activeSession.session_id} · ${activeSession.status.replaceAll('_',' ')}`;
@@ -667,10 +680,11 @@ async function deleteEntireSession(id) {
 }
 async function finishSession() {
   if(busy||takeBlob){setStatus('Save or discard the current take before finishing this session.','sectionStatus');return;}
-  if(!confirm('Finish this session? Section 9 is optional. You will no longer be able to add recordings to it.'))return;
+  const phoneTraining=activeSession?.program==='CUSTOMER';
+  if(!confirm(phoneTraining?'Finish and start training? I approve my saved voice takes in Sections 1–8 for this test. Section 9 stays separate. I will choose Key Finder previews on this phone. I cannot add recordings after finishing.':'Finish this session? Section 9 is optional. You will no longer be able to add recordings to it.'))return;
   busy=true;updateFinishStandard();$('sectionSelect').disabled=true;$('record').disabled=true;
   let message='';
-  try{const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/complete`,{method:'POST'});activeSession=data.session;message='Your recordings have been submitted for transfer. This screen will update when transfer completes.';}
+  try{const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/complete`,{method:'POST',headers:csrfHeaders(),body:JSON.stringify(phoneTraining?{start_training:true}:{})});activeSession=data.session;message='Your recordings have been submitted for transfer. This screen will update when transfer completes.';if(phoneTraining)showPhoneTraining(activeSession);}
   catch(error){message=error.message;}
   finally{busy=false;renderSections(activeSectionId);$('sectionSelect').disabled=activeSession.status!=='RECORDING';$('sessionLabel').textContent=`Session ${activeSession.session_id} · ${activeSession.status.replaceAll('_',' ')}`;setStatus(message,'sectionStatus');}
 }
@@ -685,6 +699,7 @@ function cancelTransferCompleteTimer() {
   transferCompleteTimer=null;
 }
 function showTransferComplete(session) {
+  if(session.program==='CUSTOMER'&&session.phone_training?.accepted===true){showPhoneTraining(session);return;}
   if(transferCompleteSessionId===session.session_id&&!$('transferCompleteCard').hidden)return;
   cancelTransferCompleteTimer();
   transferCompleteSessionId=session.session_id;
@@ -727,6 +742,7 @@ async function startAfterCompletedTransfer() {
 }
 async function refreshCompletedTransferScreen() {
   if(transferScreenRefreshBusy||busy||!activeSession)return;
+  if(activeSession.program==='CUSTOMER'&&activeSession.phone_training?.accepted===true){await refreshPhoneTraining();return;}
   if(activeSession.status==='TRANSFERRED_AUDIO_DELETED') {showTransferComplete(activeSession);return;}
   if(activeSession.status!=='READY_FOR_TRANSFER')return;
   const sessionId=activeSession.session_id;
@@ -745,6 +761,68 @@ async function refreshCompletedTransferScreen() {
 $('startAfterTransfer').addEventListener('click',startAfterCompletedTransfer);
 setInterval(()=>{if(activeSession?.status==='READY_FOR_TRANSFER')refreshCompletedTransferScreen();},10000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshCompletedTransferScreen();});
+
+
+// Customer phone flow keeps transfer, training, Key Finder and certification together.
+let phoneRefreshBusy=false, phoneSnapshot=null, phoneOptionsRevision='', phoneChoiceBusy=false;
+const phoneLabels={QUEUED:'Recordings submitted. Waiting for verified transfer.',PREPARING:'Transfer verified. Preparing your training recording.',TRAINING:'Training your voice model.',KEY_SELECTION:'Key Finder: listen and choose the voice that sounds most natural.',CERTIFYING:'Checking your completed voice model.',READY:'Voice Profile Ready — certification passed.',FAILED:'Processing did not succeed. Project X will review this test.',REVIEW_REQUIRED:'This test needs Project X review. No new training will start automatically.'};
+function showPhoneTraining(session){
+  cancelTransferCompleteTimer();activeSession=session;
+  clearSavedPlayback();releaseMic();clearTick();resetAudioMeter();
+  $('captureCard').hidden=true;$('startCard').hidden=true;$('transferCompleteCard').hidden=true;
+  $('phoneTrainingCard').hidden=false;
+  $('phoneTrainingSession').textContent=`Session ${session.session_id}`;
+  $('phoneTrainingStatus').textContent=phoneLabels.QUEUED;
+  $('phoneTrainingCard').scrollIntoView({behavior:'smooth',block:'start'});
+  refreshPhoneTraining();
+}
+async function refreshPhoneTraining(){
+  if(phoneRefreshBusy||!activeSession?.phone_training?.accepted||$('phoneTrainingCard').hidden)return;
+  phoneRefreshBusy=true;const sid=activeSession.session_id;
+  try{
+    const snapshot=await api(`/api/sessions/${encodeURIComponent(sid)}/phone-flow`,{cache:'no-store'});
+    if(activeSession?.session_id!==sid||snapshot.session_id!==sid)return;
+    phoneSnapshot=snapshot;
+    $('phoneTrainingStatus').textContent=phoneLabels[snapshot.phase]||'Processing your voice profile.';
+    $('phoneTrainingProgress').textContent=`${snapshot.request_id?'Run '+snapshot.request_id+' · ':''}${snapshot.epoch?'Epoch '+snapshot.epoch+' / 300':''}`;
+    $('phoneTrainingHelp').textContent='Processing continues on Project X’s PC. If the phone sleeps, return to this session after signing in to the same account.';
+    const revision=JSON.stringify([sid,snapshot.phase,snapshot.package_id,snapshot.selection_pending,snapshot.options]);
+    if(revision!==phoneOptionsRevision){
+      phoneOptionsRevision=revision;const wrap=$('phoneKeyOptions');wrap.replaceChildren();
+      if(snapshot.phase==='KEY_SELECTION'){
+        const guidance=document.createElement('p');guidance.textContent=`Round ${snapshot.round}: listen to each preview, then choose one. A suggested key is only a starting point.`;wrap.appendChild(guidance);
+        for(const option of snapshot.options){
+          const card=document.createElement('div');card.className='option';
+          const label=document.createElement('h3');label.textContent=`${option.label}${option.key?' · '+option.key:''}${option.suggested?' · Suggested start':''}`;
+          const audio=document.createElement('audio');audio.controls=true;audio.preload='none';audio.src=option.url;audio.style.width='100%';
+          audio.addEventListener('play',()=>wrap.querySelectorAll('audio').forEach(other=>{if(other!==audio)other.pause();}));
+          const button=document.createElement('button');button.className='primary';button.type='button';button.textContent='Choose this preview';button.disabled=snapshot.selection_pending||phoneChoiceBusy;
+          button.addEventListener('click',()=>choosePhoneKey(sid,snapshot.package_id,option.shift));
+          card.append(label,audio,button);wrap.appendChild(card);
+        }
+        if(snapshot.selection_pending){const pending=document.createElement('p');pending.textContent='Applying your choice…';wrap.appendChild(pending);}
+      }
+    }
+    $('phoneTrainingEnd').hidden=!['READY','FAILED','REVIEW_REQUIRED'].includes(snapshot.phase);
+  }catch(error){if(activeSession?.session_id===sid)$('phoneTrainingHelp').textContent='We could not refresh progress. Processing may still be running; this page will retry automatically.';}
+  finally{phoneRefreshBusy=false;}
+}
+async function choosePhoneKey(sid,packageId,shift){
+  if(phoneChoiceBusy||activeSession?.session_id!==sid)return;
+  phoneChoiceBusy=true;$('phoneKeyOptions').querySelectorAll('button').forEach(b=>b.disabled=true);
+  try{await api(`/api/sessions/${encodeURIComponent(sid)}/phone-key`,{method:'POST',headers:csrfHeaders(),body:JSON.stringify({package_id:packageId,shift})});}
+  catch(error){$('phoneTrainingHelp').textContent=error.message;}
+  finally{phoneChoiceBusy=false;phoneOptionsRevision='';await refreshPhoneTraining();}
+}
+$('phoneTrainingEnd').addEventListener('click',async()=>{
+  if(!phoneSnapshot||!['READY','FAILED','REVIEW_REQUIRED'].includes(phoneSnapshot.phase))return;
+  $('phoneTrainingEnd').disabled=true;
+  try{await refreshSessions();activeSession=null;phoneSnapshot=null;phoneOptionsRevision='';$('phoneKeyOptions').replaceChildren();$('phoneTrainingCard').hidden=true;$('startCard').hidden=false;$('startCard').scrollIntoView({behavior:'smooth',block:'start'});setStatus('Test complete. Return to Project X Song Selection to check your voice profile.');}
+  catch(error){$('phoneTrainingHelp').textContent='Could not refresh the page. Tap End to try again.';}
+  finally{$('phoneTrainingEnd').disabled=false;}
+});
+setInterval(refreshPhoneTraining,5000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshPhoneTraining();});
 
 // PX_READABLE_SECTION_PICKER
 function sectionPickerTitle(section) {
