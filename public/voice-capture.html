@@ -133,6 +133,7 @@
       <p id="consentDraft" class="draft">Consent notice is a draft. Replace it with approved wording before inviting participants.</p>
       <p id="consentNotice" class="notice"></p>
       <a id="consentDocument" class="doc-link" href="/consent" target="_blank" rel="noopener">Read the full consent document</a>
+      <label class="choice"><input id="ageOwnVoice" type="checkbox"><span><strong>Required · age and voice ownership</strong><span>I am 18 or older and am recording my own voice.</span></span></label>
       <fieldset aria-describedby="retentionHelp">
         <legend>Required · choose one data-retention option</legend>
         <p id="retentionHelp" class="help">Choose exactly one. Both options include recording and use for your current order. Neither is selected in advance.</p>
@@ -430,10 +431,14 @@ function retentionChoice() {
   return '';
 }
 
+function customerConsentAccepted() {
+  return Boolean(retentionChoice()) && $('ageOwnVoice').checked;
+}
+
 function syncConsentControls(changedId='') {
   if(changedId==='deleteAfterOrder'&&$('deleteAfterOrder').checked) $('futurePurchases').checked=false;
   if(changedId==='futurePurchases'&&$('futurePurchases').checked) $('deleteAfterOrder').checked=false;
-  const accepted=config?.capture_mode==='LIMITED_HELPER_PILOT' ? $('pilotUnderstood').checked : Boolean(retentionChoice());
+  const accepted=config?.capture_mode==='LIMITED_HELPER_PILOT' ? $('pilotUnderstood').checked : customerConsentAccepted();
   $('create').disabled=!config?.capture_enabled||!accepted;
 }
 
@@ -487,16 +492,17 @@ async function initialize() {
     $('deleteAfterOrder').addEventListener('change',()=>syncConsentControls('deleteAfterOrder'));
     $('futurePurchases').addEventListener('change',()=>syncConsentControls('futurePurchases'));
     $('developmentUse').addEventListener('change',()=>syncConsentControls('developmentUse'));
+    $('ageOwnVoice').addEventListener('change',()=>syncConsentControls('ageOwnVoice'));
     $('pilotUnderstood').addEventListener('change',()=>syncConsentControls('pilotUnderstood'));
-    $('create').disabled=!config.capture_enabled||(pilotMode?!$('pilotUnderstood').checked:!retentionChoice());
+    $('create').disabled=!config.capture_enabled||(pilotMode?!$('pilotUnderstood').checked:!customerConsentAccepted());
     $('create').addEventListener('click',async()=>{
       $('create').disabled=true; setStatus('Creating your session…','account');
       const selectedRetention=retentionChoice();
       const consentBody=pilotMode
         ? {pilot_consent:{accepted:true,version:config.pilot_consent_version,understood:$('pilotUnderstood').checked}}
-        : {consent:{accepted:true,version:config.consent_version,retention_choice:selectedRetention,development_use:$('developmentUse').checked}};
+        : {consent:{accepted:true,version:config.consent_version,retention_choice:selectedRetention,development_use:$('developmentUse').checked,adult_confirmed:$('ageOwnVoice').checked,own_voice_confirmed:$('ageOwnVoice').checked}};
       try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify(consentBody)});await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
-      catch(error){setStatus(error.message);$('create').disabled=!config.capture_enabled||(pilotMode?!$('pilotUnderstood').checked:!retentionChoice());}
+      catch(error){setStatus(error.message);$('create').disabled=!config.capture_enabled||(pilotMode?!$('pilotUnderstood').checked:!customerConsentAccepted());}
     });
     await refreshSessions();
     $('account').textContent='Signed in to Project X.';

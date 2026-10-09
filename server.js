@@ -483,11 +483,15 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
       choicesReady && config.consent_document_path === '/consent';
     if (!consentApproved || !promptsReady) return res.status(503).json({ error: 'New sessions are disabled until the consent wording and all eight prompts are approved.' });
     const expectedVersion = consentVersion;
+    const eligibilityNotice = "I am 18 or older and am recording my own voice.";
     const submittedConsent = req.body?.consent;
     const validRetentionChoice = ['DELETE_AFTER_ORDER', 'FUTURE_PURCHASES'].includes(submittedConsent?.retention_choice);
     if (!submittedConsent || submittedConsent.accepted !== true || submittedConsent.version !== expectedVersion ||
         !validRetentionChoice || typeof submittedConsent.development_use !== 'boolean') {
       return res.status(400).json({ error: 'Choose exactly one retention option and submit the current consent version before starting.' });
+    }
+    if (submittedConsent.adult_confirmed !== true || submittedConsent.own_voice_confirmed !== true) {
+      return res.status(400).json({ error: 'Confirm that you are 18 or older and are recording your own voice before starting.' });
     }
     await fsp.mkdir(SESSION_DIR, { recursive: true });
     const existingDirs = await fsp.readdir(SESSION_DIR, { withFileTypes: true });
@@ -504,7 +508,8 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
     const sessionId = crypto.randomUUID();
     const consentEvidence = {
       notice: config.consent_notice,
-      choices: choiceLabels
+      choices: choiceLabels,
+      eligibility_notice: eligibilityNotice
     };
     const noticeHash = sha256(JSON.stringify(consentEvidence));
     const manifest = {
@@ -518,6 +523,9 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
       consent: {
         accepted: true,
         current_order: true,
+        adult_confirmed: true,
+        own_voice_confirmed: true,
+        eligibility_notice: eligibilityNotice,
         version: expectedVersion,
         retention_choice: submittedConsent.retention_choice,
         future_purchase_storage: submittedConsent.retention_choice === 'FUTURE_PURCHASES',
