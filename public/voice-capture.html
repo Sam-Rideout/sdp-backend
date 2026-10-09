@@ -359,7 +359,7 @@ function showSection(id) {
   for(const take of takes) {
     const item=document.createElement('li');
     const label=document.createElement('span');
-    label.textContent=`Take ${take.take} · ${durationLabel(take.duration_seconds)} · saved`;
+    label.textContent=`Take ${take.take} · ${durationLabel(take.duration_seconds)} · ${activeSession.status==='TRANSFERRED_AUDIO_DELETED'?'transferred':'saved'}`;
     const actions=document.createElement('div');actions.className='take-actions';
     const listen=document.createElement('button');
     listen.type='button';listen.className='quiet';listen.textContent='Listen';
@@ -625,13 +625,37 @@ async function finishSession() {
   if(!confirm('Finish this session? Section 9 is optional. You will no longer be able to add recordings to it.'))return;
   busy=true;updateFinishStandard();$('sectionSelect').disabled=true;$('record').disabled=true;
   let message='';
-  try{const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/complete`,{method:'POST'});activeSession=data.session;message='Session complete. Recordings are locked and ready for verified transfer.';}
+  try{const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/complete`,{method:'POST'});activeSession=data.session;message='Your recordings have been submitted for transfer. This screen will update when transfer completes.';}
   catch(error){message=error.message;}
   finally{busy=false;renderSections(activeSectionId);$('sectionSelect').disabled=activeSession.status!=='RECORDING';$('sessionLabel').textContent=`Session ${activeSession.session_id} · ${activeSession.status.replaceAll('_',' ')}`;setStatus(message,'sectionStatus');}
 }
 
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&mediaRecorder?.state==='recording')stopRecording(true);});
 window.addEventListener('pagehide',()=>{if(mediaRecorder?.state==='recording')stopRecording(true);releaseMic();clearTick();resetAudioMeter();if(takeUrl)URL.revokeObjectURL(takeUrl);clearSavedPlayback();});
+// PX_AUTOMATIC_TRANSFER_SCREEN_REFRESH
+let transferScreenRefreshBusy=false;
+async function refreshCompletedTransferScreen() {
+  if(transferScreenRefreshBusy||busy||!activeSession||activeSession.status!=='READY_FOR_TRANSFER')return;
+  const sessionId=activeSession.session_id;
+  transferScreenRefreshBusy=true;
+  try {
+    const data=await api(`/api/sessions/${encodeURIComponent(sessionId)}`);
+    if(!activeSession||activeSession.session_id!==sessionId||busy)return;
+    if(data.session.status==='TRANSFERRED_AUDIO_DELETED') {
+      activeSession=data.session;
+      clearSavedPlayback();renderSections(activeSectionId);
+      $('sessionLabel').textContent=`Session ${sessionId} · TRANSFER COMPLETE`;
+      setStatus('Transfer complete. Your recordings were received and verified. The active audio copies were removed from Render.','sectionStatus');
+      await refreshSessions();
+    }
+  } catch(error) {
+    // A brief network failure or session lock must not change completion state.
+    console.warn('Transfer status refresh will retry.');
+  } finally {transferScreenRefreshBusy=false;}
+}
+setInterval(refreshCompletedTransferScreen,10000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshCompletedTransferScreen();});
+
 initialize();
 </script>
 </body>

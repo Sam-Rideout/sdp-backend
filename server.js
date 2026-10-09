@@ -692,6 +692,11 @@ app.get('/api/sessions/:sessionId/clips/:clipId', authenticatedMember, requireCa
   } catch (error) { next(error); }
 });
 
+// Automatic PC pickup uses the same protected transfer authentication.
+require('./voice-transfer-queue').attachTransferQueue(app, {
+  sessionDir: SESSION_DIR, readManifest, safeSessionId, transferAuth
+});
+
 // PC-only transfer endpoints use a separate secret and do not expose member audio in browser APIs.
 app.get('/api/transfer/sessions/:sessionId', transferAuth, transferManifest, (req, res) => {
   res.json({ profile_id: req.manifest.owner_member_id, manifest: publicManifest(req.manifest), manifest_sha256: sha256(req.rawManifest) });
