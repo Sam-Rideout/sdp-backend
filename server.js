@@ -510,7 +510,7 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
       if (!entry.isDirectory() || !safeSessionId(entry.name)) continue;
       try {
         const existing = await readManifest(entry.name);
-        if (existing.owner_member_id === req.memberId && existing.status === 'RECORDING') {
+        if (existing.owner_member_id === req.memberId && (existing.program || 'CUSTOMER') === req.captureProgram && existing.status === 'RECORDING') {
           return res.status(409).json({ error: 'Resume your open recording session before starting another.' });
         }
       } catch { /* An incomplete session folder is not an authorized session. */ }
