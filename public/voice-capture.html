@@ -136,6 +136,14 @@
     <p id="setupBlock" class="help" hidden>New sessions are disabled until the prompts and consent wording have been approved in the server configuration.</p>
   </section>
 
+  <section id="transferCompleteCard" class="card" hidden aria-labelledby="transferCompleteTitle">
+    <h2 id="transferCompleteTitle">Transfer Complete</h2>
+    <p role="status" aria-live="polite">Your recordings were received and verified. The active audio copies were removed from Render.</p>
+    <p class="help">Voice-profile processing is a separate step. This message confirms transfer only.</p>
+    <p id="transferCompleteSession" class="help"></p>
+    <p id="transferCompleteHelp" class="help">Returning to Start a New Session in 15 seconds. Tap End to continue now.</p>
+    <button id="startAfterTransfer" type="button">End</button>
+  </section>
   <main id="captureCard" class="card" hidden>
     <div class="progress">
       <h2 id="sectionTitle">Section</h2>
@@ -404,6 +412,8 @@ function syncConsentControls(changedId='') {
 
 async function selectSession(id) {
   const data=await api(`/api/sessions/${encodeURIComponent(id)}`); activeSession=data.session;
+  $('transferCompleteCard').hidden=true;
+  if(activeSession.status==='TRANSFERRED_AUDIO_DELETED'){showTransferComplete(activeSession);return;}
   $('startCard').hidden=true; $('captureCard').hidden=false;
   $('sessionLabel').textContent=`Session ${activeSession.session_id} · ${activeSession.status.replaceAll('_',' ')}`;
   renderSections();
@@ -632,28 +642,73 @@ async function finishSession() {
 
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&mediaRecorder?.state==='recording')stopRecording(true);});
 window.addEventListener('pagehide',()=>{if(mediaRecorder?.state==='recording')stopRecording(true);releaseMic();clearTick();resetAudioMeter();if(takeUrl)URL.revokeObjectURL(takeUrl);clearSavedPlayback();});
-// PX_AUTOMATIC_TRANSFER_SCREEN_REFRESH
+// PX_AUTOMATIC_TRANSFER_SCREEN_REFRESH_V3
 let transferScreenRefreshBusy=false;
+let transferCompleteTimer=null, transferCompleteSessionId='', transferEndBusy=false;
+function cancelTransferCompleteTimer() {
+  if(transferCompleteTimer!==null)clearTimeout(transferCompleteTimer);
+  transferCompleteTimer=null;
+}
+function showTransferComplete(session) {
+  if(transferCompleteSessionId===session.session_id&&!$('transferCompleteCard').hidden)return;
+  cancelTransferCompleteTimer();
+  transferCompleteSessionId=session.session_id;
+  activeSession=session;
+  clearSavedPlayback();releaseMic();clearTick();resetAudioMeter();
+  $('captureCard').hidden=true;
+  $('startCard').hidden=true;
+  $('transferCompleteCard').hidden=false;
+  $('transferCompleteSession').textContent=`Session ${session.session_id}`;
+  $('transferCompleteCard').scrollIntoView({behavior:'smooth',block:'start'});
+  $('transferCompleteHelp').textContent='Returning to Start a New Session in 15 seconds. Tap End to continue now.';
+  $('startAfterTransfer').disabled=false;
+  setStatus('');
+  const completedId=session.session_id;
+  transferCompleteTimer=setTimeout(()=>{
+    transferCompleteTimer=null;
+    if(activeSession?.session_id===completedId&&activeSession.status==='TRANSFERRED_AUDIO_DELETED')
+      startAfterCompletedTransfer();
+  },15000);
+}
+async function startAfterCompletedTransfer() {
+  if(transferEndBusy||activeSession?.status!=='TRANSFERRED_AUDIO_DELETED')return;
+  transferEndBusy=true;
+  cancelTransferCompleteTimer();
+  const completedId=activeSession.session_id;
+  $('startAfterTransfer').disabled=true;
+  try {
+    await refreshSessions();
+    if(activeSession?.session_id!==completedId)return;
+    activeSession=null;
+    transferCompleteSessionId='';
+    $('captureCard').hidden=true;
+    $('transferCompleteCard').hidden=true;
+    $('startCard').hidden=false;
+    $('startCard').scrollIntoView({behavior:'smooth',block:'start'});
+    setStatus('Your previous transfer is complete. You can start a new session below.');
+  } catch(error) {
+    $('transferCompleteHelp').textContent='Could not load the new-session screen. Tap End to try again.';
+  } finally {transferEndBusy=false;$('startAfterTransfer').disabled=false;}
+}
 async function refreshCompletedTransferScreen() {
-  if(transferScreenRefreshBusy||busy||!activeSession||activeSession.status!=='READY_FOR_TRANSFER')return;
+  if(transferScreenRefreshBusy||busy||!activeSession)return;
+  if(activeSession.status==='TRANSFERRED_AUDIO_DELETED') {showTransferComplete(activeSession);return;}
+  if(activeSession.status!=='READY_FOR_TRANSFER')return;
   const sessionId=activeSession.session_id;
   transferScreenRefreshBusy=true;
   try {
-    const data=await api(`/api/sessions/${encodeURIComponent(sessionId)}`);
+    const data=await api(`/api/sessions/${encodeURIComponent(sessionId)}`,{cache:'no-store'});
     if(!activeSession||activeSession.session_id!==sessionId||busy)return;
-    if(data.session.status==='TRANSFERRED_AUDIO_DELETED') {
-      activeSession=data.session;
-      clearSavedPlayback();renderSections(activeSectionId);
-      $('sessionLabel').textContent=`Session ${sessionId} · TRANSFER COMPLETE`;
-      setStatus('Transfer complete. Your recordings were received and verified. The active audio copies were removed from Render.','sectionStatus');
-      await refreshSessions();
-    }
+    if(!data?.session||data.session.session_id!==sessionId)throw new Error('Session status response did not match.');
+    if(data.session.status==='TRANSFERRED_AUDIO_DELETED')showTransferComplete(data.session);
+    else setStatus('Recordings submitted. Waiting for verified transfer. This screen checks automatically.','sectionStatus');
   } catch(error) {
-    // A brief network failure or session lock must not change completion state.
-    console.warn('Transfer status refresh will retry.');
+    if(activeSession?.session_id===sessionId&&!busy)
+      setStatus('Your recordings are submitted. We could not refresh transfer status yet; checking again shortly.','sectionStatus');
   } finally {transferScreenRefreshBusy=false;}
 }
-setInterval(refreshCompletedTransferScreen,10000);
+$('startAfterTransfer').addEventListener('click',startAfterCompletedTransfer);
+setInterval(()=>{if(activeSession?.status==='READY_FOR_TRANSFER')refreshCompletedTransferScreen();},10000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshCompletedTransferScreen();});
 
 initialize();
