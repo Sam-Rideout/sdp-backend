@@ -46,7 +46,7 @@ function attachProfileStatus(app, context) {
     }
   }
 
-  async function snapshot(member) {
+  async function snapshot(member, includeReadyEvidence = false) {
     const sessions = await ownedSessions(member);
     if (!sessions.length) return { status: 'MISSING' };
     const latest = sessions[0];
@@ -55,7 +55,8 @@ function attachProfileStatus(app, context) {
     catch (e) { if (e.code !== 'ENOENT') throw e; }
     if (record && record.session_id === latest.session_id) {
       validateRecord(record, latest);
-      return { status: record.status };
+      return includeReadyEvidence && record.status === 'READY'
+        ? { status: 'READY', profile: record } : { status: record.status };
     }
     if (latest.status === 'RECORDING') return { status: 'RECORDING' };
     if (['READY_FOR_TRANSFER', 'TRANSFERRED_AUDIO_DELETED'].includes(latest.status)) {
@@ -124,7 +125,11 @@ function attachProfileStatus(app, context) {
         next(error);
       }
     });
-  return { snapshot };
+  async function readyProfile(member) {
+    const result = await snapshot(member, true);
+    return result.status === 'READY' ? result.profile : null;
+  }
+  return { snapshot, readyProfile };
 }
 
 module.exports = { attachProfileStatus };

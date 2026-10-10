@@ -775,6 +775,11 @@ require('./voice-phone-flow').attachPhoneFlow(app, {
   ownedManifest, express, profileSnapshot: profileStatusBridge.snapshot
 });
 
+require('./song-selection').attachSongSelection(app, {
+  dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers,
+  readyProfile: profileStatusBridge.readyProfile
+});
+
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
   if (error instanceof multer.MulterError) {
