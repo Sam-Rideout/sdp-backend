@@ -780,6 +780,10 @@ require('./song-selection').attachSongSelection(app, {
   readyProfile: profileStatusBridge.readyProfile
 });
 
+require('./song-selection-transfer').attachSongSelectionTransfer(app, {
+  dataDir: DATA_DIR, transferAuth, readyProfile: profileStatusBridge.readyProfile
+});
+
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
   if (error instanceof multer.MulterError) {
