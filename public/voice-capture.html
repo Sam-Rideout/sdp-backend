@@ -221,15 +221,15 @@
       <button id="stop" class="danger" type="button" disabled>Stop recording</button>
     </div>
     <div id="review" hidden>
-      <p class="good">Take ready. Listen before saving.</p>
+      <p class="good">Your recording saves automatically when it stops.</p>
       <audio id="playback" controls preload="metadata" aria-label="Listen to this take"></audio>
       <div class="row">
-        <button id="saveTake" class="primary" type="button">Save this take</button>
+        <button id="saveTake" class="primary" type="button">Retry saving</button>
         <button id="discardTake" class="danger" type="button">Discard this take</button>
       </div>
       <p class="help">Discard removes this unsaved take from the page. It has not been uploaded.</p>
     </div>
-    <p class="help">Keep the page open while recording and saving. A take is not stored until Save this take finishes.</p>
+    <p class="help">Keep the page open while recording and saving. Wait for the Saved message before leaving. If saving fails, keep this page open and use Retry saving.</p>
     <aside id="finishStandard" class="prompt" hidden aria-live="polite">
       <h2 id="finishStandardTitle">Finish Standard</h2>
       <p id="finishStandardText"></p>
@@ -454,6 +454,7 @@ function syncConsentControls(changedId='') {
 }
 
 async function selectSession(id) {
+  if(busy||takeBlob){setStatus('Wait for saving to finish, or retry or discard the unsaved take before changing sessions.','sectionStatus');return;}
   const data=await api(`/api/sessions/${encodeURIComponent(id)}`); activeSession=data.session;
   $('transferCompleteCard').hidden=true;
   if(activeSession.program==='CUSTOMER'&&activeSession.phone_training?.accepted===true){showPhoneTraining(activeSession);return;}
@@ -511,6 +512,7 @@ async function initialize() {
     $('pilotUnderstood').addEventListener('change',()=>syncConsentControls('pilotUnderstood'));
     $('create').disabled=!config.capture_enabled||(pilotMode?!$('pilotUnderstood').checked:!customerConsentAccepted());
     $('create').addEventListener('click',async()=>{
+      if(busy||takeBlob){setStatus('Finish saving or discard the unsaved take before creating a session.','sectionStatus');return;}
       $('create').disabled=true; setStatus('Creating your session…','account');
       const selectedRetention=retentionChoice();
       const consentBody=pilotMode
@@ -531,13 +533,13 @@ async function initialize() {
     $('discardTake').addEventListener('click',discardTake);
     $('finish').addEventListener('click',finishSession);
     $('closeSavedPlayback').addEventListener('click',clearSavedPlayback);
-    $('logout').addEventListener('click',async()=>{clearSavedPlayback();await api('/api/session/logout',{method:'POST'});location.reload();});
+    $('logout').addEventListener('click',async()=>{if(busy||takeBlob){setStatus('Finish saving or discard the unsaved take before signing out.','sectionStatus');return;}clearSavedPlayback();await api('/api/session/logout',{method:'POST'});location.reload();});
   }catch(error){$('account').textContent=error.message; if(error.message.includes('Sign in')) $('account').textContent='Open this recorder from the signed-in Project X member page.';}
 }
 
 async function startRecording() {
   if(busy||!activeSession||activeSession.status!=='RECORDING')return;
-  if(takeBlob&&!confirm('Discard the unsaved take and record a new one?'))return;
+  if(takeBlob){setStatus('Retry saving or discard the unsaved take before recording again.','sectionStatus');return;}
   busy=true; updateFinishStandard(); $('record').disabled=true; $('stop').disabled=true; $('review').hidden=true; $('sectionSelect').disabled=true;$('timer').textContent='00:00';
   setRecordingIndicator('starting','Connecting to microphone','Recording has not started yet. Allow microphone access if your browser asks.');
   setStatus('Opening microphone…','sectionStatus');
@@ -573,11 +575,11 @@ async function startRecording() {
       const blob=new Blob(chunks,{type:mediaRecorder.mimeType||chunks[0]?.type||'audio/webm'});chunks=[];
       if(!blob.size){setRecordingIndicator('error','No audio captured','Recording stopped without audio. Check the microphone and try again.');setStatus('No audio was recorded. Please try again.','sectionStatus');$('record').disabled=false;return;}
       takeBlob=blob; updateFinishStandard(); if(takeUrl)URL.revokeObjectURL(takeUrl);takeUrl=URL.createObjectURL(blob);
-      $('playback').src=takeUrl;$('review').hidden=false;$('record').disabled=false;
-      const stoppedMessage=recordingInterrupted?'Recording stopped unexpectedly. Review the recovered take below before saving.':'Recording stopped. Review the take below, then save it.';
-      setRecordingIndicator('ready','Recording stopped',stoppedMessage);
+      $('playback').src=takeUrl;$('review').hidden=false;$('record').disabled=true;
+      const stoppedMessage=recordingInterrupted?'Recording stopped unexpectedly. Saving the recovered take…':'Recording stopped. Saving your take…';
+      setRecordingIndicator('ready','Saving…',stoppedMessage);
       $('meterCaption').textContent='The microphone level display activates during recording; moving bars show sound reaching the microphone.';
-      setStatus(`Take ready (${durationLabel(takeDuration)}). Listen, then save it.`, 'sectionStatus');
+      void saveTake();
       recordingInterrupted=false;
     };
     mediaRecorder.start(1000);
@@ -596,18 +598,18 @@ function stopRecording(interrupted) {
 
 async function saveTake() {
   if(!takeBlob||busy)return;
-  busy=true;updateFinishStandard();$('sectionSelect').disabled=true;$('record').disabled=true;$('saveTake').disabled=true;$('discardTake').disabled=true;setStatus('Uploading and saving this take…','sectionStatus');
+  busy=true;updateFinishStandard();$('sectionSelect').disabled=true;$('record').disabled=true;$('saveTake').disabled=true;$('discardTake').disabled=true;setRecordingIndicator('ready','Saving…','Your recording has stopped. Keep this page open while the take saves.');setStatus('Saving your take…','sectionStatus');
   try{
     const form=new FormData();form.append('section',String(activeSectionId));form.append('duration_seconds',String(takeDuration));
     const ext=takeBlob.type.includes('mp4')?'m4a':takeBlob.type.includes('ogg')?'ogg':takeBlob.type.includes('wav')?'wav':'webm';
     form.append('audio',takeBlob,`recording.${ext}`);
     const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/clips`,{method:'POST',body:form});
     activeSession=data.session;takeBlob=null;if(takeUrl){URL.revokeObjectURL(takeUrl);takeUrl=null;} $('playback').removeAttribute('src');$('playback').load();$('review').hidden=true;
-    setRecordingIndicator('idle','Not recording','Your take is saved. Choose a section and press “Record a take” when ready.');$('timer').textContent='00:00';
+    setRecordingIndicator('idle','Saved','Your take is saved. Choose a section and press “Record a take” when ready.');$('timer').textContent='00:00';
     $('meterCaption').textContent='The microphone level display activates during recording; moving bars show sound reaching the microphone.';
     showSection(activeSectionId);renderSections(activeSectionId);setStatus(`Saved as take ${data.clip.take}. You can record another take or choose another section.`, 'sectionStatus');
-  }catch(error){setStatus(error.message,'sectionStatus');}
-  finally{busy=false;const message=$('sectionStatus').textContent;renderSections(activeSectionId);setStatus(message,'sectionStatus');$('sectionSelect').disabled=activeSession.status!=='RECORDING';$('saveTake').disabled=false;$('discardTake').disabled=!takeBlob;}
+  }catch(error){setRecordingIndicator('error','Not saved — retry','Your recording is still on this page. Keep it open and use Retry saving.');setStatus(`Saving failed: ${error.message} Your take is still here. Use Retry saving without recording again.`,'sectionStatus');}
+  finally{busy=false;const message=$('sectionStatus').textContent;renderSections(activeSectionId);setStatus(message,'sectionStatus');$('sectionSelect').disabled=activeSession.status!=='RECORDING'||Boolean(takeBlob);$('record').disabled=activeSession.status!=='RECORDING'||Boolean(takeBlob);$('saveTake').disabled=!takeBlob;$('discardTake').disabled=!takeBlob;}
 }
 
 function discardTake() {
@@ -619,7 +621,7 @@ function discardTake() {
   $('timer').textContent='00:00';
   setRecordingIndicator('idle','Take discarded','This unsaved take was removed and was not uploaded. Record another take when ready.');
   setStatus('Unsaved take discarded. It was not uploaded to Render.','sectionStatus');
-  $('record').disabled=activeSession?.status!=='RECORDING';updateFinishStandard();
+  $('record').disabled=activeSession?.status!=='RECORDING';$('sectionSelect').disabled=activeSession?.status!=='RECORDING';updateFinishStandard();
 }
 
 async function deleteSavedTake(sectionId,clipId) {
@@ -689,6 +691,7 @@ async function finishSession() {
   finally{busy=false;renderSections(activeSectionId);$('sectionSelect').disabled=activeSession.status!=='RECORDING';$('sessionLabel').textContent=`Session ${activeSession.session_id} · ${activeSession.status.replaceAll('_',' ')}`;setStatus(message,'sectionStatus');}
 }
 
+window.addEventListener('beforeunload',event=>{if(takeBlob||mediaRecorder?.state==='recording'){event.preventDefault();event.returnValue='';}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&mediaRecorder?.state==='recording')stopRecording(true);});
 window.addEventListener('pagehide',()=>{if(mediaRecorder?.state==='recording')stopRecording(true);releaseMic();clearTick();resetAudioMeter();if(takeUrl)URL.revokeObjectURL(takeUrl);clearSavedPlayback();});
 // PX_AUTOMATIC_TRANSFER_SCREEN_REFRESH_V3
