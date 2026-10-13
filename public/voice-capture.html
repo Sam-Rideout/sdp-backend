@@ -115,6 +115,7 @@
   <header>
     <p class="brand">PROJECT X · VOICE CAPTURE · TIER 1</p>
     <h1>Voice recording session</h1>
+    <p id="signInReminder" class="notice"><strong>You must be signed in to your Project X account to continue.</strong></p>
     <p class="muted">This guided recording takes about 10–20 minutes; one pass is about 10 minutes. For a stronger, more useful voice profile, repeat at least three numbered sections twice. You can repeat any section more than twice. Use a quiet room and keep a steady distance from your microphone. Record your voice by itself: no backing music, reverb, pitch correction, compression, or doubling. Sing comfortably without straining. Mistakes are fine: pause, breathe, and repeat the phrase. Each take is saved separately, so you can review and redo a section without overwriting an earlier take.</p>
     <p id="account" class="status" role="status" aria-live="polite">Checking your member sign-in…</p>
   </header>
@@ -534,7 +535,7 @@ async function initialize() {
     $('finish').addEventListener('click',finishSession);
     $('closeSavedPlayback').addEventListener('click',clearSavedPlayback);
     $('logout').addEventListener('click',async()=>{if(busy||takeBlob){setStatus('Finish saving or discard the unsaved take before signing out.','sectionStatus');return;}clearSavedPlayback();await api('/api/session/logout',{method:'POST'});location.reload();});
-  }catch(error){$('account').textContent=error.message; if(error.message.includes('Sign in')) $('account').textContent='Open this recorder from the signed-in Project X member page.';}
+  }catch(error){$('account').textContent=error.message; if(error.message.includes('Sign in')) $('account').textContent='You must be signed in to your Project X account to continue. Return to the Project X website, sign in, then reopen Voice Capture.';}
 }
 
 async function startRecording() {
