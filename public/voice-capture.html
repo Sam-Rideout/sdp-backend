@@ -121,6 +121,7 @@
 #sectionPickerToggle:focus-visible,.section-picker-row:focus-visible { outline:3px solid #fff;outline-offset:3px; }
 #higherRegisterReminder p { color:#f0e9e3;font-size:1rem;line-height:1.6; }
 
+.return-project-x{display:block;margin-top:12px;padding:12px 14px;min-height:46px;border-radius:10px;text-align:center;text-decoration:none;font-weight:bold}.return-project-x:focus-visible{outline:3px solid #fff;outline-offset:3px}
 </style>
 </head>
 <body>
@@ -175,7 +176,8 @@
     <p id="phoneTrainingProgress" class="help"></p>
     <div id="phoneKeyOptions"></div>
     <p id="phoneTrainingHelp" class="help">You can return to this page after signing in to the same account. Processing continues on Project X’s PC.</p>
-    <button id="phoneTrainingEnd" class="primary" type="button" hidden>End</button>
+    <button id="phoneTrainingEnd" class="quiet" type="button" hidden>Start another recording session</button>
+    <a id="phoneReturnProjectX" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs">Return to Project X</a>
   </section>
 
   <section id="transferCompleteCard" class="card" hidden aria-labelledby="transferCompleteTitle">
@@ -183,8 +185,9 @@
     <p role="status" aria-live="polite">Your recordings were received and verified. The active audio copies were removed from Render.</p>
     <p class="help">Voice-profile processing is a separate step. This message confirms transfer only.</p>
     <p id="transferCompleteSession" class="help"></p>
-    <p id="transferCompleteHelp" class="help">Returning to Start a New Session in 15 seconds. Tap End to continue now.</p>
-    <button id="startAfterTransfer" type="button">End</button>
+    <p id="transferCompleteHelp" class="help">You can return to Project X or start another recording session.</p>
+    <button id="startAfterTransfer" class="quiet" type="button">Start another recording session</button>
+    <a id="transferReturnProjectX" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs">Return to Project X</a>
   </section>
   <main id="captureCard" class="card" hidden>
     <div class="progress">
@@ -727,15 +730,10 @@ function showTransferComplete(session) {
   $('transferCompleteCard').hidden=false;
   $('transferCompleteSession').textContent=`Session ${session.session_id}`;
   $('transferCompleteCard').scrollIntoView({behavior:'smooth',block:'start'});
-  $('transferCompleteHelp').textContent='Returning to Start a New Session in 15 seconds. Tap End to continue now.';
+  $('transferCompleteHelp').textContent='You can return to Project X or start another recording session.';
   $('startAfterTransfer').disabled=false;
   setStatus('');
-  const completedId=session.session_id;
-  transferCompleteTimer=setTimeout(()=>{
-    transferCompleteTimer=null;
-    if(activeSession?.session_id===completedId&&activeSession.status==='TRANSFERRED_AUDIO_DELETED')
-      startAfterCompletedTransfer();
-  },15000);
+
 }
 async function startAfterCompletedTransfer() {
   if(transferEndBusy||activeSession?.status!=='TRANSFERRED_AUDIO_DELETED')return;
@@ -754,7 +752,7 @@ async function startAfterCompletedTransfer() {
     $('startCard').scrollIntoView({behavior:'smooth',block:'start'});
     setStatus('Your previous transfer is complete. You can start a new session below.');
   } catch(error) {
-    $('transferCompleteHelp').textContent='Could not load the new-session screen. Tap End to try again.';
+    $('transferCompleteHelp').textContent='Could not load the new-session screen. Tap Start another recording session to try again.';
   } finally {transferEndBusy=false;$('startAfterTransfer').disabled=false;}
 }
 async function refreshCompletedTransferScreen() {
@@ -835,7 +833,7 @@ $('phoneTrainingEnd').addEventListener('click',async()=>{
   if(!phoneSnapshot||!['READY','FAILED','REVIEW_REQUIRED'].includes(phoneSnapshot.phase))return;
   $('phoneTrainingEnd').disabled=true;
   try{await refreshSessions();activeSession=null;phoneSnapshot=null;phoneOptionsRevision='';$('phoneKeyOptions').replaceChildren();$('phoneTrainingCard').hidden=true;$('startCard').hidden=false;$('startCard').scrollIntoView({behavior:'smooth',block:'start'});setStatus('Test complete. Return to Project X Song Selection to check your voice profile.');}
-  catch(error){$('phoneTrainingHelp').textContent='Could not refresh the page. Tap End to try again.';}
+  catch(error){$('phoneTrainingHelp').textContent='Could not refresh the page. Tap Start another recording session to try again.';}
   finally{$('phoneTrainingEnd').disabled=false;}
 });
 setInterval(refreshPhoneTraining,5000);
