@@ -132,6 +132,7 @@
     <p id="signInReminder" class="notice"><strong>You must be signed in to your Project X account to continue.</strong></p>
     <p class="muted">This guided recording takes about 10–20 minutes; one pass is about 10 minutes. For a stronger, more useful voice profile, repeat at least three numbered sections twice. You can repeat any section more than twice. Use a quiet room and keep a steady distance from your microphone. Record your voice by itself: no backing music, reverb, pitch correction, compression, or doubling. Sing comfortably without straining. Mistakes are fine: pause, breathe, and repeat the phrase. Each take is saved separately, so you can review and redo a section without overwriting an earlier take.</p>
     <p id="account" class="status" role="status" aria-live="polite">Checking your member sign-in…</p>
+    <a id="headerReturnProjectX" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs">Return to Project X</a>
   </header>
 
   <section id="startCard" class="card" hidden>
@@ -887,6 +888,17 @@ $('sectionPickerList').addEventListener('keydown',event=>{
 });
 new MutationObserver(updateReadableSectionPicker).observe($('sectionSelect'),{attributes:true,attributeFilter:['disabled']});
 
+// Return links also work on signed-out and error screens.
+document.querySelectorAll('.return-project-x').forEach(link=>{
+  link.addEventListener('click',event=>{
+    if(busy||takeBlob||mediaRecorder?.state==='recording'){
+      event.preventDefault();
+      setStatus(takeBlob&&!busy
+        ? 'Retry saving or discard the unsaved take before returning to Project X.'
+        : 'Finish the current action and wait for your take to save before returning to Project X.');
+    }
+  });
+});
 initialize();
 </script>
 </body>
