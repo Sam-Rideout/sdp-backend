@@ -105,6 +105,19 @@
 .section-picker-progress { font-size:1rem;font-weight:400;color:#fff; }
 #sectionPickerList [data-state="one"] .section-picker-progress { color:#ffe08a; }
 #sectionPickerList [data-state="complete"] .section-picker-progress { color:#a9e2c0; }
+/* Match the readable picker to the saved-take completion states. */
+#sectionPickerToggle[data-state="none"] { color:#fff; }
+#sectionPickerToggle[data-state="one"] { color:#ffe08a; }
+#sectionPickerToggle[data-state="complete"] { color:#a9e2c0; }
+#sectionPickerToggle #sectionPickerSelected,
+#sectionPickerToggle #sectionPickerStatus { color:inherit; }
+#sectionPickerList [data-state="none"] { color:#fff; }
+#sectionPickerList [data-state="one"] { color:#ffe08a; }
+#sectionPickerList [data-state="complete"] { color:#a9e2c0; }
+#sectionPickerList .section-picker-number,
+#sectionPickerList .section-picker-title,
+#sectionPickerList .section-picker-progress { color:inherit; }
+
 #sectionPickerToggle:focus-visible,.section-picker-row:focus-visible { outline:3px solid #fff;outline-offset:3px; }
 #higherRegisterReminder p { color:#f0e9e3;font-size:1rem;line-height:1.6; }
 
@@ -843,7 +856,9 @@ function updateReadableSectionPicker() {
   const section=config?.sections?.find(item=>item.id===Number(activeSectionId));
   if(!section)return;
   $('sectionPickerSelected').textContent=`Section ${section.id}${section.optional?' Â· Optional':''}: ${sectionPickerTitle(section)}`;
-  $('sectionPickerStatus').textContent=sectionFlag(sessionTakes(section.id).length).label;
+  const selectedFlag=sectionFlag(sessionTakes(section.id).length);
+  toggle.dataset.state=selectedFlag.state;
+  $('sectionPickerStatus').textContent=selectedFlag.label;
   const list=$('sectionPickerList');list.replaceChildren();
   for(const item of config.sections) {
     if(!item.configured)continue;
