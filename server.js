@@ -790,6 +790,10 @@ require('./wix-orders').attachWixOrders(app, {
   dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth
 });
 
+require('./wix-cancel').attachWixCancellation(app, {
+  dataDir: DATA_DIR, verifySigned, consumeTicket, transferAuth
+});
+
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
   if (error instanceof multer.MulterError) {

@@ -52,7 +52,10 @@ function attachSongSelectionTransfer(app, context) {
           if ((await fs.stat(target)).size > 16384) throw new Error('Stored selection evidence is too large.');
           const record = JSON.parse(await fs.readFile(target, 'utf8'));
           validateRecord(record, entry.name);
-          if (record.owner_member_id === member) records.push(record);
+          if (record.owner_member_id === member) {
+            const cancellation = await require('./wix-cancel').readCancel(context.dataDir, member, 'SELECTION', record.selection_id);
+            if (!cancellation || cancellation.status === 'TOO_LATE') records.push(record);
+          }
         }
         const profile = await context.readyProfile(member);
         records.sort((a, b) => b.selected_at.localeCompare(a.selected_at)

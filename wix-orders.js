@@ -96,6 +96,12 @@ function attachWixOrders(app, context) {
       catch(e){if(e.code!=='ENOENT')throw e;}
       if(snapshot && snapshot.owner_member_id!==claims.sub)throw new Error('Stored order ownership mismatch.');
       const orders=(snapshot?snapshot.orders:[]).map(displayOrder);
+      const {readCancel,publicCancellation}=require('./wix-cancel');
+      for(const o of orders){
+        const direct=await readCancel(context.dataDir,claims.sub,'ORDER',o.order_id);
+        const linked=o.selection_id?await readCancel(context.dataDir,claims.sub,'SELECTION',o.selection_id):null;
+        o.cancellation=publicCancellation(direct||linked);
+      }
       const selectionIds=new Set(orders.map(o=>o.selection_id).filter(Boolean));
       const selectionsRoot=path.join(context.dataDir,'song-selections');
       let entries=[];
@@ -114,7 +120,19 @@ function attachWixOrders(app, context) {
           created_at:record.selected_at,updated_at:record.selected_at,test_order:false,delivery_label:'',recovery_action:null
         });
       }
-      const items=[...orders,...selections].sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)||a.id.localeCompare(b.id));
+      for(const s of selections)s.cancellation=publicCancellation(await readCancel(context.dataDir,claims.sub,'SELECTION',s.id));
+      const all=[...orders,...selections];
+      for(const item of all){
+        item.can_cancel=item.kind==='SELECTION'||['READY','QUEUED','PROCESSING','REJECTED','TECHNICAL_FAILURE'].includes(item.order_status);
+        if(item.cancellation){
+          item.can_cancel=false;
+          if(item.cancellation.status==='REQUESTED'){item.status_label='Cancellation requested';item.message='Your cancellation request has been saved. Waiting for the processing system to confirm the outcome.';}
+          if(item.cancellation.status==='CANCELLED'){item.status_label='Cancelled';item.message='This song request has been withdrawn. Your voice profile has not been deleted.';}
+          if(item.cancellation.status==='TOO_LATE')item.message+=' The cancellation arrived after the request had finished.';
+        }
+        item.can_choose_another=item.cancellation&&item.cancellation.status==='REQUESTED'?false:Boolean(item.cancellation&&['CANCELLED','TOO_LATE'].includes(item.cancellation.status))||['CANCELLED','REFUNDED','COMPLETED'].includes(item.order_status);
+      }
+      const items=all.sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)||a.id.localeCompare(b.id));
       res.json({ok:true,items:items.slice(0,100),truncated:items.length>100||Boolean(snapshot&&snapshot.truncated),
         synced_at:snapshot?snapshot.captured_at:null,checked_at:new Date().toISOString()});
     }catch(e){next(e);}
