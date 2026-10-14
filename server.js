@@ -105,6 +105,8 @@ app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; media-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
   next();
 });
+// Protected order snapshots can contain up to 100 small public records.
+app.use('/api/transfer/order-status', transferAuth, express.json({ limit: '256kb' }));
 app.use(express.json({ limit: '32kb' }));
 
 function secret() {
@@ -782,6 +784,10 @@ require('./song-selection').attachSongSelection(app, {
 
 require('./song-selection-transfer').attachSongSelectionTransfer(app, {
   dataDir: DATA_DIR, transferAuth, readyProfile: profileStatusBridge.readyProfile
+});
+
+require('./wix-orders').attachWixOrders(app, {
+  dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth
 });
 
 app.use((error, req, res, next) => {
