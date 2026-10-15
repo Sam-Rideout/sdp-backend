@@ -175,9 +175,13 @@
     <p id="phoneTrainingStatus" role="status" aria-live="polite"></p>
     <p id="phoneTrainingSession" class="help"></p>
     <p id="phoneTrainingProgress" class="help"></p>
+    <p id="phonePreparationTime" class="help" style="font-size:18px;line-height:1.5"></p>
+    <p id="phonePreparationCheckBack" class="help" style="font-size:16px;line-height:1.5"></p>
     <div id="phoneKeyOptions"></div>
     <p id="phoneTrainingHelp" class="help">You can return to this page after signing in to the same account. Processing continues on Project X’s PC.</p>
     <button id="phoneTrainingEnd" class="quiet" type="button" hidden>Start another recording session</button>
+    <a id="phoneChooseSong" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs/blank-1" hidden>Choose your song</a>
+    <a id="phoneViewPreparation" class="quiet return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs/blank-7">View preparation status in My Orders</a>
     <a id="phoneReturnProjectX" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs">Return to Project X</a>
   </section>
 
@@ -782,8 +786,29 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshCom
 // Customer phone flow keeps transfer, training, Key Finder and certification together.
 let phoneRefreshBusy=false, phoneSnapshot=null, phoneOptionsRevision='', phoneChoiceBusy=false;
 const phoneLabels={QUEUED:'Recordings submitted. Waiting for verified transfer.',PREPARING:'Transfer verified. Preparing your training recording.',TRAINING:'Training your voice model.',KEY_SELECTION:'Key Finder: listen and choose the voice that sounds most natural.',CERTIFYING:'Checking your completed voice model.',READY:'Voice Profile Ready — certification passed.',FAILED:'Processing did not succeed. Project X will review this test.',REVIEW_REQUIRED:'This test needs Project X review. No new training will start automatically.'};
+const phonePreparationStages={QUEUED:'Waiting for preparation',CHECKING_RECORDINGS:'Checking and preparing your recordings',ANALYZING_VOICE:'Analyzing your voice',CALIBRATING:'Preparing your voice profile',TRAINING:'Training your voice profile',BUILDING_INDEX:'Building your voice profile index',PREPARING_PREVIEWS:'Preparing voice previews',VERIFYING:'Verifying your voice profile'};
+let phonePreparationClockOffset=0;
+function renderPhonePreparation(){
+  const snapshot=phoneSnapshot,p=snapshot?.preparation;
+  $('phoneChooseSong').hidden=snapshot?.phase!=='READY';
+  if(!p){$('phonePreparationTime').textContent='';$('phonePreparationCheckBack').textContent='Waiting for a preparation update.';return;}
+  const now=Date.now()+phonePreparationClockOffset,submitted=Date.parse(p.submitted_at),finished=Date.parse(p.finished_at),updated=Date.parse(p.progress_updated_at);
+  const terminal=['READY','FAILED','REVIEW_REQUIRED'].includes(snapshot.phase);
+  const fresh=Number.isFinite(updated)&&now-updated<=120000;
+  const end=Number.isFinite(finished)?finished:(fresh||snapshot.phase==='QUEUED'?now:updated);
+  if(Number.isFinite(submitted)&&Number.isFinite(end)){
+    const seconds=Math.max(0,Math.floor((end-submitted)/1000)),hours=Math.floor(seconds/3600);
+    const clock=(hours?hours+':':'')+String(Math.floor(seconds%3600/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
+    $('phonePreparationTime').textContent=(snapshot.phase==='READY'?'Time from submission to ready: ':fresh||terminal||snapshot.phase==='QUEUED'?'Time since submission: ':'Time since submission at last update: ')+clock;
+  }else $('phonePreparationTime').textContent='';
+  if(snapshot.phase==='READY')$('phonePreparationCheckBack').textContent='Your voice profile is ready. You can now choose your birthday song.';
+  else if(terminal)$('phonePreparationCheckBack').textContent='Additional recordings have not been requested. Contact Project X at sdp.projectx.contact@gmail.com.';
+  else if(snapshot.phase==='KEY_SELECTION')$('phonePreparationCheckBack').textContent='Complete the voice-preview choice below to continue preparation.';
+  else $('phonePreparationCheckBack').textContent='Allow about an hour for preparation once processing begins. This is an estimate; waiting time or technical issues can make it longer. Check back in about 10 minutes, or leave this page open for automatic updates.'+(!fresh&&snapshot.phase!=='QUEUED'?' A recent progress update is not available; preparation may still be running.':'');
+}
+setInterval(()=>{if(!$('phoneTrainingCard').hidden)renderPhonePreparation();},1000);
 function showPhoneTraining(session){
-  cancelTransferCompleteTimer();activeSession=session;
+  cancelTransferCompleteTimer();activeSession=session;phoneSnapshot=null;
   clearSavedPlayback();releaseMic();clearTick();resetAudioMeter();
   $('captureCard').hidden=true;$('startCard').hidden=true;$('transferCompleteCard').hidden=true;
   $('phoneTrainingCard').hidden=false;
@@ -799,9 +824,12 @@ async function refreshPhoneTraining(){
     const snapshot=await api(`/api/sessions/${encodeURIComponent(sid)}/phone-flow`,{cache:'no-store'});
     if(activeSession?.session_id!==sid||snapshot.session_id!==sid)return;
     phoneSnapshot=snapshot;
-    $('phoneTrainingStatus').textContent=phoneLabels[snapshot.phase]||'Processing your voice profile.';
-    $('phoneTrainingProgress').textContent=`${snapshot.request_id?'Run '+snapshot.request_id+' · ':''}${snapshot.epoch?'Epoch '+snapshot.epoch+' / 300':''}`;
-    $('phoneTrainingHelp').textContent='Processing continues on Project X’s PC. If the phone sleeps, return to this session after signing in to the same account.';
+    const preparationChecked=Date.parse(snapshot.preparation?.checked_at);
+    phonePreparationClockOffset=Number.isFinite(preparationChecked)?preparationChecked-Date.now():0;
+    $('phoneTrainingStatus').textContent=phonePreparationStages[snapshot.preparation?.stage_code]||phoneLabels[snapshot.phase]||'Processing your voice profile.';
+    $('phoneTrainingProgress').textContent=snapshot.preparation?.stage_code==='TRAINING'&&snapshot.epoch?`Training progress: ${snapshot.epoch} of 300 passes. Verification still follows training.`:'';
+    renderPhonePreparation();
+    $('phoneTrainingHelp').textContent='Preparation continues while you are away. Return to this session or My Orders after signing in to the same account.';
     const revision=JSON.stringify([sid,snapshot.phase,snapshot.package_id,snapshot.selection_pending,snapshot.options]);
     if(revision!==phoneOptionsRevision){
       phoneOptionsRevision=revision;const wrap=$('phoneKeyOptions');wrap.replaceChildren();

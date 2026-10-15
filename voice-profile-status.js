@@ -8,6 +8,7 @@ const path = require('node:path');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const hex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const text = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
+const { publicPreparation } = require('./voice-preparation');
 const STATES = new Set(['PROCESSING', 'READY', 'FAILED', 'REVOKED']);
 
 function attachProfileStatus(app, context) {
@@ -46,21 +47,40 @@ function attachProfileStatus(app, context) {
     }
   }
 
+  async function preparation(manifest, status, record = null) {
+    if (!safeSessionId(manifest.session_id)) throw new Error('Invalid preparation session.');
+    let state = null;
+    try {
+      state = JSON.parse(await fsp.readFile(path.join(dataDir, 'phone-training', manifest.session_id, 'state.json'), 'utf8'));
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        // Progress is optional display metadata, never profile-release authority.
+        const publicView = publicPreparation(manifest, null, status, record);
+        return publicView && status === 'PROCESSING'
+          ? {...publicView, phase:'UNKNOWN', stage_code:'UNKNOWN', details_available:false}
+          : publicView;
+      }
+    }
+    if (status === 'READY' && state && record && state.model_id !== record.voice_model_id) state = null;
+    return publicPreparation(manifest, state, status, record);
+  }
+
   async function snapshot(member, includeReadyEvidence = false) {
     const sessions = await ownedSessions(member);
-    if (!sessions.length) return { status: 'MISSING' };
+    if (!sessions.length) return { status: 'MISSING', preparation: null, checked_at: new Date().toISOString() };
     const latest = sessions[0];
     let record;
     try { record = JSON.parse(await fsp.readFile(filename(member), 'utf8')); }
     catch (e) { if (e.code !== 'ENOENT') throw e; }
     if (record && record.session_id === latest.session_id) {
       validateRecord(record, latest);
+      const result = { status: record.status, preparation: includeReadyEvidence ? null : await preparation(latest, record.status, record), checked_at: new Date().toISOString() };
       return includeReadyEvidence && record.status === 'READY'
-        ? { status: 'READY', profile: record } : { status: record.status };
+        ? { ...result, profile: record } : result;
     }
-    if (latest.status === 'RECORDING') return { status: 'RECORDING' };
+    if (latest.status === 'RECORDING') return { status: 'RECORDING', preparation: null, checked_at: new Date().toISOString() };
     if (['READY_FOR_TRANSFER', 'TRANSFERRED_AUDIO_DELETED'].includes(latest.status)) {
-      return { status: 'PROCESSING' };
+      return { status: 'PROCESSING', preparation: await preparation(latest, 'PROCESSING'), checked_at: new Date().toISOString() };
     }
     throw new Error('Unknown voice session state.');
   }
