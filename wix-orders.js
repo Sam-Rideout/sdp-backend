@@ -55,7 +55,7 @@ function displayOrder(o) {
     QUEUED:['Waiting to process','Your song request is waiting to be processed.'],
     PROCESSING:['Creating your song','Your song is being processed. You can return here to check its progress.'],
     COMPLETED:['Processing complete','Song processing is complete.'],
-    REJECTED:['Song could not be completed','This song could not be completed. No additional voice recordings have been requested.'],
+    REJECTED:['Song could not be completed','This song could not be completed. Please try another song. No additional voice recordings have been requested.'],
     TECHNICAL_FAILURE:['Technical issue','A technical issue prevented completion. No action or additional recordings are requested from you at this time.'],
     CANCELLED:['Cancelled','This processing request was cancelled.'],
     REFUNDED:['Refunded','This order is recorded as refunded.'],
