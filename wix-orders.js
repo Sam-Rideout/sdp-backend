@@ -143,6 +143,11 @@ function attachWixOrders(app, context) {
         }
         item.can_choose_another=item.cancellation&&item.cancellation.status==='REQUESTED'?false:Boolean(item.cancellation&&['CANCELLED','TOO_LATE'].includes(item.cancellation.status))||['CANCELLED','REFUNDED','COMPLETED'].includes(item.order_status);
       }
+      for(const item of all){
+        const sid=item.kind==='SELECTION'?item.id:item.selection_id;
+        item.birthday_message=sid&&context.messageSummary?await context.messageSummary(claims.sub,sid):null;
+        item.can_add_message=item.kind==='SELECTION'&&!item.cancellation&&item.birthday_message?.can_record===true;
+      }
       const items=all.sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)||a.id.localeCompare(b.id));
       res.json({ok:true,items:items.slice(0,100),truncated:items.length>100||Boolean(snapshot&&snapshot.truncated),
         synced_at:snapshot?snapshot.captured_at:null,checked_at:new Date().toISOString()});

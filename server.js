@@ -786,8 +786,15 @@ require('./song-selection-transfer').attachSongSelectionTransfer(app, {
   dataDir: DATA_DIR, transferAuth, readyProfile: profileStatusBridge.readyProfile
 });
 
+const birthdayMessageBridge = require('./birthday-message').attachBirthdayMessage(app, {
+  root: ROOT, dataDir: DATA_DIR, authenticatedMember, requireCaptureAccess, requireSameOrigin,
+  transferAuth, readyProfile: profileStatusBridge.readyProfile, multer, directoryBytes,
+  maxStoreBytes: MAX_STORE_BYTES
+});
+
 require('./wix-orders').attachWixOrders(app, {
-  dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth
+  dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth,
+  messageSummary: birthdayMessageBridge.summaryFor
 });
 
 require('./wix-cancel').attachWixCancellation(app, {
