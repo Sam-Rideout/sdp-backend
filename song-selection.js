@@ -15,6 +15,7 @@ function authorized(claims, now) {
     && claims.iat <= now + 60 && claims.iat >= now - 180
     && claims.exp > now && claims.exp <= now + 180 && claims.exp > claims.iat
     && token(claims.jti) && token(claims.request_id)
+    && (claims.voice_profile_id === undefined || bounded(claims.voice_profile_id))
     && bounded(claims.catalog_item_id)
     && typeof claims.px_song_id === 'string' && /^PX[0-9]{6}$/.test(claims.px_song_id));
 }
@@ -40,7 +41,7 @@ function attachSongSelection(app, context) {
       if (locks.has(target)) return res.status(409).json({ error: 'Selection is being saved. Please retry.' });
       lock = target;
       locks.add(lock);
-      const profile = await context.readyProfile(claims.sub);
+      const profile = await context.readyProfile(claims.sub, claims.voice_profile_id);
       if (!profile) return res.status(409).json({ error: 'A current certified READY voice profile is required.' });
       let existing;
       try { existing = JSON.parse(await fs.readFile(target, 'utf8')); }
@@ -52,10 +53,13 @@ function attachSongSelection(app, context) {
           || existing.voice_model_id !== profile.voice_model_id || existing.model_sha256 !== profile.model_sha256
           || existing.index_sha256 !== profile.index_sha256 || existing.customer_id !== profile.customer_id
           || existing.certification_id !== profile.certification_id
-          || existing.certification_sha256 !== profile.certification_sha256) {
+          || existing.certification_sha256 !== profile.certification_sha256
+          || existing.profile_origin !== profile.profile_origin
+          || existing.account_test_only !== profile.account_test_only
+          || existing.consent_session_id !== profile.consent_session_id) {
           return res.status(409).json({ error: 'Selection request changed. Start a new selection.' });
         }
-        return res.json({ ok: true, status: 'SELECTED', selection_id: existing.selection_id, px_song_id: existing.px_song_id });
+        return res.json({ ok: true, status: 'SELECTED', selection_id: existing.selection_id, px_song_id: existing.px_song_id, voice_profile_id: existing.voice_profile_id });
       }
       const record = {
         schema_version: 'PX-SONG-SELECTION-1.0', selection_id: crypto.randomUUID(),
@@ -67,6 +71,11 @@ function attachSongSelection(app, context) {
         certification_id: profile.certification_id, certification_sha256: profile.certification_sha256,
         selected_at: new Date().toISOString()
       };
+      if (profile.profile_origin === 'EXISTING_OWNER_TEST') {
+        record.profile_origin = profile.profile_origin;
+        record.account_test_only = true;
+        record.consent_session_id = profile.consent_session_id;
+      }
       await fs.mkdir(root, { recursive: true, mode: 0o700 });
       const temporary = target + '.' + crypto.randomUUID() + '.tmp';
       await fs.writeFile(temporary, JSON.stringify(record, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
@@ -77,7 +86,7 @@ function attachSongSelection(app, context) {
         if (error.code === 'EEXIST') return res.status(409).json({ error: 'Selection is being saved. Please retry.' });
         throw error;
       } finally { await fs.unlink(temporary); }
-      res.json({ ok: true, status: 'SELECTED', selection_id: record.selection_id, px_song_id: record.px_song_id });
+      res.json({ ok: true, status: 'SELECTED', selection_id: record.selection_id, px_song_id: record.px_song_id, voice_profile_id: record.voice_profile_id });
     } catch (error) { next(error); }
     finally { if (lock) locks.delete(lock); }
   });

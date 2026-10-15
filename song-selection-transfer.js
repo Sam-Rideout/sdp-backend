@@ -10,12 +10,18 @@ const FIELDS = ['customer_id', 'session_id', 'voice_profile_id', 'voice_model_id
 
 function matchesProfile(record, profile) {
   return Boolean(profile && record.owner_member_id === profile.owner_member_id
-    && FIELDS.every(key => record[key] === profile[key]));
+    && FIELDS.every(key => record[key] === profile[key])
+    && record.profile_origin === profile.profile_origin
+    && record.account_test_only === profile.account_test_only
+    && record.consent_session_id === profile.consent_session_id);
 }
 
 function validateRecord(record, filename) {
   if (!record || record.schema_version !== 'PX-SONG-SELECTION-1.0'
     || record.status !== 'SELECTED'
+    || (record.profile_origin !== undefined && (record.profile_origin !== 'EXISTING_OWNER_TEST'
+      || record.account_test_only !== true || record.consent_session_id !== record.session_id))
+    || (record.profile_origin === undefined && (record.account_test_only !== undefined || record.consent_session_id !== undefined))
     || typeof record.owner_member_id !== 'string'
     || record.owner_member_id.length < 3 || record.owner_member_id.length > 200
     || !/^[a-f0-9]{48}$/.test(record.request_id)
@@ -58,10 +64,14 @@ function attachSongSelectionTransfer(app, context) {
           }
         }
         const profile = await context.readyProfile(member);
+        const profiles = context.profiles
+          ? (await context.profiles(member)).filter(x => x.record.status === 'READY').map(x => x.record)
+          : (profile ? [profile] : []);
         records.sort((a, b) => b.selected_at.localeCompare(a.selected_at)
           || a.selection_id.localeCompare(b.selection_id));
         res.json({ schema_version: 'PX-SONG-SELECTION-EXPORT-1.0',
           owner_member_id: member, current_profile: profile,
+          profiles_schema_version: 'PX-OWNED-VOICE-PROFILES-1.0', profiles,
           truncated: records.length > 100,
           selections: records.slice(0, 100).map(record => ({
             ...record, current_profile_matches: matchesProfile(record, profile)

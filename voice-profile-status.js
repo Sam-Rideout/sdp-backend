@@ -47,6 +47,8 @@ function attachProfileStatus(app, context) {
     }
   }
 
+  const catalog = require('./profile-catalog').createProfileCatalog({dataDir, ownedSessions, validateRecord});
+
   async function preparation(manifest, status, record = null) {
     if (!safeSessionId(manifest.session_id)) throw new Error('Invalid preparation session.');
     let state = null;
@@ -65,13 +67,12 @@ function attachProfileStatus(app, context) {
     return publicPreparation(manifest, state, status, record);
   }
 
-  async function snapshot(member, includeReadyEvidence = false) {
+  async function snapshot(member, includeReadyEvidence = false, sessionId = undefined) {
     const sessions = await ownedSessions(member);
     if (!sessions.length) return { status: 'MISSING', preparation: null, checked_at: new Date().toISOString() };
-    const latest = sessions[0];
-    let record;
-    try { record = JSON.parse(await fsp.readFile(filename(member), 'utf8')); }
-    catch (e) { if (e.code !== 'ENOENT') throw e; }
+    const latest = sessionId === undefined ? sessions[0] : sessions.find(m => m.session_id === sessionId);
+    if (!latest) return {status:'MISSING', preparation:null, checked_at:new Date().toISOString()};
+    const record = await catalog.recordFor(member, latest);
     if (record && record.session_id === latest.session_id) {
       validateRecord(record, latest);
       const result = { status: record.status, preparation: includeReadyEvidence ? null : await preparation(latest, record.status, record), checked_at: new Date().toISOString() };
@@ -103,7 +104,13 @@ function attachProfileStatus(app, context) {
       }
       await pruneOldReplayMarkers();
       // Claims identify the member; browser-supplied member IDs are ignored.
-      res.json(await snapshot(claims.sub));
+      const result = await snapshot(claims.sub);
+      const profiles = await catalog.publicProfiles(claims.sub);
+      const selected = await catalog.selectableProfile(claims.sub);
+      res.set('Cache-Control', 'no-store');
+      res.json({...result, status:selected ? 'READY' : result.status,
+        latest_session_status:result.status, profiles,
+        default_voice_profile_id:selected?.voice_profile_id || ''});
     } catch (error) { next(error); }
   });
 
@@ -128,28 +135,17 @@ function attachProfileStatus(app, context) {
         };
         try { validateRecord(record, manifest); }
         catch { return res.status(400).json({ error: 'Invalid profile status or missing certified-model evidence.' }); }
-        // Only the newest customer session may change current readiness.
-        const sessions = await ownedSessions(manifest.owner_member_id);
-        if (!sessions.length || sessions[0].session_id !== manifest.session_id) {
-          return res.status(409).json({ error: 'A newer customer recording session exists.' });
-        }
-        await fsp.mkdir(root, { recursive: true, mode: 0o700 });
-        const target = filename(manifest.owner_member_id);
-        const temporary = `${target}.${crypto.randomUUID()}.tmp`;
-        await fsp.writeFile(temporary, JSON.stringify(record, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
-        try { await fsp.rename(temporary, target); }
-        finally { await fsp.unlink(temporary).catch(e => { if (e.code !== 'ENOENT') throw e; }); }
+        // Every publication stays bound to its verified owned session.
+        await catalog.publish(manifest.owner_member_id, manifest, record);
         res.json({ ok: true, status: record.status });
       } catch (error) {
         if (error.code === 'ENOENT') return res.status(404).json({ error: 'Session not found.' });
         next(error);
       }
     });
-  async function readyProfile(member) {
-    const result = await snapshot(member, true);
-    return result.status === 'READY' ? result.profile : null;
-  }
-  return { snapshot, readyProfile };
+  require('./existing-profile-status').attachExistingProfileStatus(app, context, catalog);
+  return {snapshot, readyProfile:catalog.readyProfile,
+    selectableProfile:catalog.selectableProfile, profiles:catalog.records};
 }
 
 module.exports = { attachProfileStatus };

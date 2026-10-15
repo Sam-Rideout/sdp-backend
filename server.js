@@ -768,7 +768,7 @@ app.post('/api/transfer/sessions/:sessionId/confirm', transferAuth, express.json
 // Readiness is published only by the protected local processing bridge.
 const profileStatusBridge = require('./voice-profile-status').attachProfileStatus(app, {
   dataDir: DATA_DIR, sessionDir: SESSION_DIR, readManifest, safeSessionId,
-  verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth
+  verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth, customerTestAccess
 });
 
 require('./voice-phone-flow').attachPhoneFlow(app, {
@@ -779,11 +779,12 @@ require('./voice-phone-flow').attachPhoneFlow(app, {
 
 require('./song-selection').attachSongSelection(app, {
   dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers,
-  readyProfile: profileStatusBridge.readyProfile
+  readyProfile: profileStatusBridge.selectableProfile
 });
 
 require('./song-selection-transfer').attachSongSelectionTransfer(app, {
-  dataDir: DATA_DIR, transferAuth, readyProfile: profileStatusBridge.readyProfile
+  dataDir: DATA_DIR, transferAuth, readyProfile: profileStatusBridge.readyProfile,
+  profiles: profileStatusBridge.profiles
 });
 
 const birthdayMessageBridge = require('./birthday-message').attachBirthdayMessage(app, {

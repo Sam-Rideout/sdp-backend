@@ -64,7 +64,7 @@ function attachBirthdayMessage(app,c){
   }
   if(editing){
    if(s.commit_id || s.claim_id || orders.length)fail('This message is locked for its order. Choose a new song request to record another message.');
-   if(!matchesProfile(sel.record,await c.readyProfile(owner)))fail('Your saved voice profile must be READY for this song selection.');
+   if(!matchesProfile(sel.record,await c.readyProfile(owner,sel.record.voice_profile_id)))fail('Your saved voice profile must be READY for this song selection.');
   }
   return {sel,s,orders};
  }
@@ -114,7 +114,7 @@ function attachBirthdayMessage(app,c){
    if(s.claim_id && s.claim_id!==claim)fail('This message is already locked by another processing request.');
    if(!s.claim_id && orders.length)fail('An order already exists for this selection.');
    if(!s.claim_id){
-    if(!matchesProfile(sel.record,await c.readyProfile(owner)))fail('The selection no longer matches the READY profile.');
+    if(!matchesProfile(sel.record,await c.readyProfile(owner,sel.record.voice_profile_id)))fail('The selection no longer matches the READY profile.');
     s.claim_id=claim;if(s.choice==='NONE')s.choice='SKIPPED';s.claimed_at=new Date().toISOString();s.updated_at=s.claimed_at;await write(statePath(id),s);
    }
    res.json({ok:true,message:s});
@@ -145,7 +145,7 @@ function attachBirthdayMessage(app,c){
    const {sel,s,orders}=await available(id,owner,false,true);
    if(s.commit_id===id)return {selection:sel.record,selection_sha256:sel.sha256,message:{choice:s.choice,clip_id:s.audio?.clip_id||'',sha256:s.audio?.sha256||''}};
    if(s.claim_id||orders.length)fail('This song selection already has an order.');
-   if(!matchesProfile(sel.record,await c.readyProfile(owner)))fail('Your voice profile must be READY.');
+   if(!matchesProfile(sel.record,await c.readyProfile(owner,sel.record.voice_profile_id)))fail('Your voice profile must be READY.');
    if(!['RECORDED','SKIPPED'].includes(s.choice))fail('Record your message or choose Continue without a message first.');
    s.commit_id=id;s.committed_at=new Date().toISOString();await write(statePath(id),s);
    return {selection:sel.record,selection_sha256:sel.sha256,message:{choice:s.choice,clip_id:s.audio?.clip_id||'',sha256:s.audio?.sha256||''}};

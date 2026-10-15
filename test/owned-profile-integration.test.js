@@ -1,0 +1,53 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),sync=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
+const {consentHash}=require('../existing-profile-status');
+const root=sync.mkdtempSync(path.join(os.tmpdir(),'px-job20-integration-'));
+Object.assign(process.env,{VOICE_DATA_DIR:path.join(root,'data'),WIX_HANDOFF_SECRET:'fixture-signing-secret-more-than-thirty-two-characters',VOICE_TRANSFER_TOKEN:'fixture-transfer-secret-more-than-thirty-two-characters',VOICE_CAPTURE_MODE:'CUSTOMER'});
+const config=JSON.parse(sync.readFileSync(path.join(__dirname,'../config/capture-sections.json'),'utf8'));
+Object.assign(config,{customer_capture_scope:'ACCOUNT_TEST',customer_test_account_email:'sam.rideout.me@gmail.com'});
+process.env.VOICE_SECTION_CONFIG=path.join(root,'config.json');sync.writeFileSync(process.env.VOICE_SECTION_CONFIG,JSON.stringify(config));
+const {app,sign}=require('../server');
+const MODEL='TRN-PC-19c512ae-af53-4280-a1e3-f93733a1391c',MEMBER='29b28efa-5b13-4799-a369-6348c59c0f5e',SESSION='bca52091-4fc0-4f3f-998d-08a710112e7b';
+const sha=v=>crypto.createHash('sha256').update(v).digest('hex');
+function ticket(purpose,extra={}){const now=Math.floor(Date.now()/1000);return sign({iss:'wix',aud:'project-x-catalog',sub:MEMBER,purpose,iat:now,exp:now+120,jti:crypto.randomBytes(24).toString('hex'),...extra});}
+test('owned PC choice survives message recording and commit while phone remains default',async t=>{
+ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
+ t.after(async()=>{await new Promise(r=>server.close(r));await fs.rm(root,{recursive:true,force:true});});
+ const base='http://127.0.0.1:'+server.address().port,auth={authorization:'Bearer '+process.env.VOICE_TRANSFER_TOKEN};
+ async function post(url,body,headers={}){const r=await fetch(base+url,{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};}
+ const consent={accepted:true,current_order:true,adult_confirmed:true,own_voice_confirmed:true,retention_choice:'FUTURE_PURCHASES',version:'fixture-v1',accepted_at:'2026-10-15T00:00:00Z'};
+ const manifest={session_id:SESSION,owner_member_id:MEMBER,program:'CUSTOMER',status:'TRANSFERRED_AUDIO_DELETED',created_at:'2026-10-10T00:00:00Z',consent};
+ const folder=path.join(process.env.VOICE_DATA_DIR,'sessions',SESSION);await fs.mkdir(folder,{recursive:true});await fs.writeFile(path.join(folder,'manifest.json'),JSON.stringify(manifest));
+ const phone={status:'READY',voice_profile_id:'PXPITCH-Phone',voice_model_id:'Phone',customer_id:'PXC-000003',model_sha256:'a'.repeat(64),index_sha256:'b'.repeat(64),certification_id:'PXCERT-'+'C'.repeat(32),certification_sha256:'c'.repeat(64)};
+ assert.equal((await post('/api/transfer/sessions/'+SESSION+'/profile-status',phone,auth)).status,200);
+ const evidence={schema_version:'PX-EXISTING-VOICE-OWNER-TEST-1.0',status:'BOUND_FOR_ACCOUNT_TEST',scope:'SAM_COMPLIMENTARY_ACCOUNT_TEST',account_email:'sam.rideout.me@gmail.com',profile_origin:'EXISTING_OWNER_TEST',account_test_only:true,customer_id:'PXC-000003',owner_member_id:MEMBER,session_id:SESSION,consent_session_id:SESSION,consent_sha256:consentHash(consent),voice_profile_id:'PXPITCH-'+MODEL,voice_model_id:MODEL,model_sha256:'724883bdc78f28d8c8d43742c4a9c2fce61ecd87406ba526e2a22079588430c1',index_sha256:'742958c014bbdf8bc8bcd2610e71dc90ec65f16176eb98cb00730c8cf2fb9a5b',original_authorization_reference:'SAM_RIDEOUT_OWNER_TEST_20261003',owner_assertion_reference:'SAM_RIDEOUT_JOB20_PC_PROFILE_20261015'};
+ function publication(e=evidence,status){const certificate_json=JSON.stringify(e),certification_sha256=sha(certificate_json);return {certificate_json,certification_sha256,certification_id:'PXCERT-'+certification_sha256.slice(0,32).toUpperCase(),...(status?{status}:{})};}
+ assert.equal((await post('/api/transfer/existing-voice-profiles',publication())).status,401);
+ assert.equal((await post('/api/transfer/existing-voice-profiles',publication(),auth)).status,200);
+ assert.equal((await post('/api/transfer/existing-voice-profiles',publication({...evidence,owner_member_id:'other-member'}),auth)).status,400);
+ const listing=await post('/api/wix/voice-profile-status',{ticket:ticket('voice-profile-status')});
+ assert.equal(listing.body.profiles.length,2);assert.equal(listing.body.default_voice_profile_id,'PXPITCH-Phone');
+ const choose=()=>post('/api/wix/song-selection',{ticket:ticket('song-selection',{request_id:crypto.randomBytes(24).toString('hex'),catalog_item_id:'fixture-catalog',px_song_id:'PX000320',voice_profile_id:'PXPITCH-'+MODEL})});
+ const selection=await choose();assert.equal(selection.status,200);const id=selection.body.selection_id;
+ const exported=await (await fetch(base+'/api/transfer/song-selections/'+MEMBER,{headers:auth})).json();
+ assert.equal(exported.profiles.length,2);assert.equal(exported.selections[0].current_profile_matches,false);assert.equal(exported.selections[0].profile_origin,'EXISTING_OWNER_TEST');
+ const cookie='px_voice_session='+sign({iss:'project-x-voice-capture',sub:MEMBER,email:'sam.rideout.me@gmail.com',exp:Math.floor(Date.now()/1000)+300});
+ assert.equal((await post('/api/birthday-message/'+id+'/skip',{}, {cookie,origin:base,'X-PX-Message':'1'})).status,200);
+ assert.equal((await post('/api/wix/create-song',{ticket:ticket('create-song',{aud:'project-x-orders',selection_id:id,email:'sam.rideout.me@gmail.com'})})).status,200);
+ const commits=await (await fetch(base+'/api/transfer/song-commits/'+MEMBER,{headers:auth})).json();
+ assert.equal(commits.commands[0].frozen.selection.voice_model_id,MODEL);assert.equal(commits.commands[0].frozen.message.choice,'SKIPPED');
+ const recordedSelection=await choose();assert.equal(recordedSelection.status,200);
+ const recordedId=recordedSelection.body.selection_id,form=new FormData();
+ form.set('audio',new Blob([Buffer.alloc(512)],{type:'audio/wav'}),'fixture.wav');
+ form.set('duration_seconds','1');form.set('consent_version','order-message-only-2026-10-15-v1');
+ const upload=await fetch(base+'/api/birthday-message/'+recordedId+'/audio',{method:'POST',headers:{cookie,origin:base,'X-PX-Message':'1'},body:form});
+ assert.equal(upload.status,200);assert.equal((await upload.json()).choice,'RECORDED');
+ const recordedCommit=await post('/api/wix/create-song',{ticket:ticket('create-song',{aud:'project-x-orders',selection_id:recordedId,email:'sam.rideout.me@gmail.com'})});
+ assert.equal(recordedCommit.status,200);
+ const both=await (await fetch(base+'/api/transfer/song-commits/'+MEMBER,{headers:auth})).json();
+ const recorded=both.commands.find(c=>c.selection_id===recordedId);
+ assert.equal(recorded.frozen.message.choice,'RECORDED');assert.equal(recorded.frozen.selection.voice_model_id,MODEL);
+ const other=await post('/api/wix/voice-profile-status',{ticket:ticket('voice-profile-status',{sub:'other-member'})});assert.equal(other.body.profiles.length,0);
+ assert.equal((await post('/api/transfer/existing-voice-profiles',publication(evidence,'REVOKED'),auth)).status,200);assert.equal((await choose()).status,409);
+ assert.equal((await post('/api/wix/voice-profile-status',{ticket:ticket('voice-profile-status')})).body.default_voice_profile_id,'PXPITCH-Phone');
+});
