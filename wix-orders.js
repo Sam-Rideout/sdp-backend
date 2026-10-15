@@ -30,10 +30,21 @@ function validateSnapshot(body) {
       || !(o.selection_id === '' || uuid(o.selection_id))
       || !['','CREATED','READY','PENDING','QUEUED','SENT','FAILED'].includes(o.delivery_status)
       || !(o.sent_at === '' || date(o.sent_at))) throw new Error('Invalid order record.');
+    const processing_started_at = o.processing_started_at ?? '';
+    const processing_finished_at = o.processing_finished_at ?? '';
+    const processing_status = o.processing_status ?? '';
+    if (!(processing_started_at === '' || date(processing_started_at))
+      || !(processing_finished_at === '' || date(processing_finished_at))
+      || !['','QUEUED','PROCESSING','COMPLETED','REJECTED','TECHNICAL_FAILURE','CANCELLED'].includes(processing_status)
+      || (processing_started_at && processing_finished_at && Date.parse(processing_finished_at) < Date.parse(processing_started_at))) {
+      throw new Error('Invalid processing clock.');
+    }
+    o = {...o, processing_started_at, processing_finished_at, processing_status};
     seen.add(o.order_id);
     // Explicit public whitelist: never persist model assets, email, logs or local paths.
     return Object.fromEntries(['order_id','order_status','song_name','px_song_id','created_at',
-      'updated_at','test_order','selection_id','delivery_status','sent_at'].map(k => [k,o[k]]));
+      'updated_at','test_order','selection_id','delivery_status','sent_at',
+      'processing_started_at','processing_finished_at','processing_status'].map(k => [k,o[k]]));
   });
   return {schema_version:body.schema_version, owner_member_id:body.owner_member_id,
     captured_at:body.captured_at, truncated:body.truncated, orders};
