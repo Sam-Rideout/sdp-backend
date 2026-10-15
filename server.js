@@ -792,9 +792,13 @@ const birthdayMessageBridge = require('./birthday-message').attachBirthdayMessag
   maxStoreBytes: MAX_STORE_BYTES
 });
 
+const createSongBridge = require('./create-song').attachCreateSong(app, {
+  dataDir: DATA_DIR, verifySigned, consumeTicket, transferAuth,
+  customerTestAccess, freezeMessage: birthdayMessageBridge.freezeForCommit
+});
 require('./wix-orders').attachWixOrders(app, {
   dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth,
-  messageSummary: birthdayMessageBridge.summaryFor
+  messageSummary: birthdayMessageBridge.summaryFor, creationSummary: createSongBridge.summaryFor
 });
 
 require('./wix-cancel').attachWixCancellation(app, {

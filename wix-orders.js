@@ -147,6 +147,13 @@ function attachWixOrders(app, context) {
         const sid=item.kind==='SELECTION'?item.id:item.selection_id;
         item.birthday_message=sid&&context.messageSummary?await context.messageSummary(claims.sub,sid):null;
         item.can_add_message=item.kind==='SELECTION'&&!item.cancellation&&item.birthday_message?.can_record===true;
+        item.creation=sid&&context.creationSummary?await context.creationSummary(claims.sub,sid):null;
+        item.can_create_song=item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&(item.birthday_message?.can_record===true||item.birthday_message?.committed===true)&&['RECORDED','SKIPPED'].includes(item.birthday_message?.choice);
+        if(item.creation && item.kind==='SELECTION'&&!item.cancellation){
+          item.can_add_message=false;
+          item.status_label=item.creation.state==='NEEDS_ATTENTION'?'Project X review needed':item.creation.state==='REQUESTED'?'Waiting for processing':'Preparing your order';
+          item.message=item.creation.state==='NEEDS_ATTENTION'?'Your song request needs Project X review. Please do not create a duplicate request.':'Your song and message choices are committed. Processing will begin when the service is available.';
+        }
       }
       const items=all.sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)||a.id.localeCompare(b.id));
       res.json({ok:true,items:items.slice(0,100),truncated:items.length>100||Boolean(snapshot&&snapshot.truncated),

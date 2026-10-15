@@ -63,13 +63,13 @@ function attachBirthdayMessage(app,c){
    fail('This song request has been withdrawn.');
   }
   if(editing){
-   if(s.claim_id || orders.length)fail('This message is locked for its order. Choose a new song request to record another message.');
+   if(s.commit_id || s.claim_id || orders.length)fail('This message is locked for its order. Choose a new song request to record another message.');
    if(!matchesProfile(sel.record,await c.readyProfile(owner)))fail('Your saved voice profile must be READY for this song selection.');
   }
   return {sel,s,orders};
  }
  function publicState(s,orders=[]){return {selection_id:s.selection_id,song_id:s.px_song_id,choice:s.choice,
-   locked:Boolean(s.claim_id||orders.length),clip_id:s.audio?.clip_id||'',duration_seconds:s.audio?.duration_seconds||0,
+   locked:Boolean(s.commit_id||s.claim_id||orders.length),committed:Boolean(s.commit_id),clip_id:s.audio?.clip_id||'',duration_seconds:s.audio?.duration_seconds||0,
    audio_available:Boolean(s.audio&&!s.audio.deleted_at),updated_at:s.updated_at};}
  const browser=[c.authenticatedMember,c.requireCaptureAccess];
  const modify=[...browser,c.requireSameOrigin,(req,res,next)=>req.get('X-PX-Message')==='1'?next():res.status(403).json({error:'Message request could not be verified.'})];
@@ -140,9 +140,19 @@ function attachBirthdayMessage(app,c){
    res.json({ok:true,status:'TRANSFERRED_AUDIO_DELETED',selection_id:s.selection_id,clip_id:s.audio.clip_id});
   });
  }catch(e){next(e);}});
- return {async summaryFor(owner,id){
+ return {async freezeForCommit(owner,id){
+  return lock(id,async()=>{
+   const {sel,s,orders}=await available(id,owner,false,true);
+   if(s.commit_id===id)return {selection:sel.record,selection_sha256:sel.sha256,message:{choice:s.choice,clip_id:s.audio?.clip_id||'',sha256:s.audio?.sha256||''}};
+   if(s.claim_id||orders.length)fail('This song selection already has an order.');
+   if(!matchesProfile(sel.record,await c.readyProfile(owner)))fail('Your voice profile must be READY.');
+   if(!['RECORDED','SKIPPED'].includes(s.choice))fail('Record your message or choose Continue without a message first.');
+   s.commit_id=id;s.committed_at=new Date().toISOString();await write(statePath(id),s);
+   return {selection:sel.record,selection_sha256:sel.sha256,message:{choice:s.choice,clip_id:s.audio?.clip_id||'',sha256:s.audio?.sha256||''}};
+  });
+ },async summaryFor(owner,id){
   if(!uuid(id))return null;
-  try{const {s,orders}=await available(id,owner);return {...publicState(s,orders),can_record:!s.claim_id&&!orders.length};}
+  try{const {s,orders}=await available(id,owner);return {...publicState(s,orders),can_record:!s.commit_id&&!s.claim_id&&!orders.length};}
   catch(e){if([404,409].includes(e.status))return {choice:'UNAVAILABLE',locked:true,can_record:false};throw e;}
  }};
 }
