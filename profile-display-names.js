@@ -11,6 +11,8 @@ function sourceLabel(record, manifest) {
   if (record.profile_origin === 'EXISTING_OWNER_TEST') return 'PC';
   if (manifest.training_source === 'SUPPLIED_RECORDING') return 'Uploaded audio';
   const context = manifest.phone_training?.test_context;
+  if (context?.requested_device === 'PHONE') return 'Phone';
+  if (context?.requested_device === 'PC') return 'PC';
   if (context?.requested_device === 'BROWSER') {
     const agent = String(context.browser_user_agent || '');
     if (/iPhone|Android.*Mobile/i.test(agent)) return 'Phone';
@@ -68,6 +70,9 @@ function createDisplayNames(dataDir) {
           if (Object.keys(ledger.profiles).length>=10000 || ledger.next_sequence>=Number.MAX_SAFE_INTEGER) throw new Error('Profile naming metadata requires maintenance.');
           ledger.profiles[key]={sequence:ledger.next_sequence++,source:sourceLabel(record,manifest),date:dateLabel(record.created_at || manifest.created_at)};
           changed=true;
+        } else if (ledger.profiles[key].source === 'Recording') {
+          const source = sourceLabel(record,manifest);
+          if (source !== 'Recording') { ledger.profiles[key].source = source; changed=true; }
         }
       }
       if(changed) {
