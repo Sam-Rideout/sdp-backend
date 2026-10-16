@@ -30,8 +30,7 @@ $w.onReady(() => {
     profiles = []; chosenProfileId = ''; picker.options = []; syncPickerValue(); picker.disable();
   }
   function profileLabel(profile) {
-    const date = new Date(profile.createdAt);
-    return profile.label + (Number.isFinite(date.getTime()) ? ' — ' + date.toLocaleString() : '');
+    return profile.label;
   }
   function openOrders() {
     if (!MY_ORDERS_URL.startsWith('https://') || !selected ||
@@ -68,7 +67,8 @@ $w.onReady(() => {
         button.label = 'View My Orders'; statusText.text = `Your selection is saved: ${selected.pxSongId}.`;
         if (!busy) button.enable(); return;
       }
-      statusText.text = `Selected: ${profileLabel(chosenProfile())}. Choose this song to continue.`;
+      const profile = chosenProfile();
+      statusText.text = `Selected: ${profileLabel(profile)}.\nFull title: ${profile.technicalTitle || profile.label}\nChoose this song to continue.`;
     }
     if (!busy && ['SIGNED_OUT','MISSING','RECORDING','READY','ERROR'].includes(nextState)) button.enable();
   }

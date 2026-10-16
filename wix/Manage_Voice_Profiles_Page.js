@@ -9,13 +9,13 @@ $w.onReady(function () {
   confirm.label='Confirm Profile Deletion';cancel.label='Keep Profile';remove.label='Delete This Profile';
   function chosen(){return profiles.find(p=>p.voiceProfileId===selected&&p.status==='READY');}
   function render(){
-    picker.options=profiles.filter(p=>p.status==='READY').map(p=>({label:p.label+' — '+(p.createdAt?new Date(p.createdAt).toLocaleDateString():''),value:p.voiceProfileId}));
+    picker.options=profiles.filter(p=>p.status==='READY').map(p=>({label:p.label,value:p.voiceProfileId}));
     if(selected)picker.value=selected;else picker.selectedIndex=undefined;
     picker.disable();remove.disable();confirm.disable();cancel.disable();
     if(!busy&&authentication.loggedIn()){picker.enable();if(chosen())remove.enable();}
     if(pending){confirm.show();cancel.show();if(!busy){confirm.enable();cancel.enable();}picker.disable();remove.disable();}
     else {confirm.hide();cancel.hide();}
-    const p=chosen();details.text=p?`Selected profile: ${p.label}. Deleting it leaves your customer account and other voice profiles in place.`:
+    const p=chosen();details.text=p?`Selected profile: ${p.label}\nFull title: ${p.technicalTitle || p.label}\nDeleting it leaves your customer account and other voice profiles in place.`:
       'Your customer account stays open even if you delete every voice profile. You can return later and create a new profile.';
   }
   async function refresh(message=''){

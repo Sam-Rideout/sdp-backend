@@ -8,6 +8,7 @@ const {validateExisting, consentHash} = require('./existing-profile-status');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 
 function createProfileCatalog({dataDir, ownedSessions, validateRecord}) {
+  const displayNames = require('./profile-display-names').createDisplayNames(dataDir);
   const withdrawals = require('./profile-deletion').createProfileDeletionStore(dataDir);
   const legacy = member => path.join(dataDir, 'voice-profile-status', hash(member) + '.json');
   const folder = member => path.join(dataDir, 'voice-profile-records', hash(member));
@@ -83,11 +84,14 @@ function createProfileCatalog({dataDir, ownedSessions, validateRecord}) {
     return matches[0]?.record || null;
   }
   async function publicProfiles(member) {
-    return (await records(member)).map(({record:r, manifest:m, selectable}, i) => ({
+    const rows = await records(member);
+    const names = await displayNames.decorate(member, rows);
+    return rows.map(({record:r, manifest:m, selectable}, i) => ({
       voice_profile_id: r.voice_profile_id || '',
       status:r.status, selectable,
-      label:typeof r.display_name === 'string' && r.display_name.length <= 200 ? r.display_name :
-        (m.training_source === 'SUPPLIED_RECORDING' ? 'Supplied recording profile' : 'Website recording profile'),
+      label:names[i]?.label || 'Recording · Date unknown',
+      technical_title:typeof r.display_name === 'string' && r.display_name.trim().length > 0 && r.display_name.length <= 200 ? r.display_name :
+        (r.voice_profile_id || 'Recording profile'),
       created_at:r.created_at || m.created_at, updated_at:r.updated_at,
       deletion_requested:r.deletion_requested === true,
       deletion_status:r.deletion_status || '',

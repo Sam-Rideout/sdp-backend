@@ -62,6 +62,7 @@ export const getVoiceProfileStatus = webMethod(Permissions.SiteMember,async () =
     defaultVoiceProfileId:validText(result.default_voice_profile_id) ? result.default_voice_profile_id : '',
     profiles:profiles.map(p => ({voiceProfileId:validText(p.voice_profile_id) ? p.voice_profile_id : '',
       label:p.label,status:p.status,selectable:p.selectable,
+      technicalTitle:validText(p.technical_title) ? p.technical_title : p.label,
       createdAt:typeof p.created_at === 'string' ? p.created_at : '',
       updatedAt:typeof p.updated_at === 'string' ? p.updated_at : '',
       deletionRequested:p.deletion_requested === true,
