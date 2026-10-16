@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Use an existing voice recording</title>
+<style>body{background:#151515;color:#f0e9e3;font:18px system-ui;max-width:720px;margin:32px auto;padding:20px;line-height:1.5}button,input,select{font:inherit;padding:10px;margin:8px 0}button{cursor:pointer}button:disabled{cursor:default}a{color:#b8d9ff}label{display:block;margin:16px 0}input[type=checkbox]{width:24px;height:24px;vertical-align:middle}audio{width:100%}section{border:1px solid #aaa;padding:20px;margin:20px 0}#status{white-space:pre-wrap}small{overflow-wrap:anywhere}</style></head>
+<body><a href="/voice-capture">Back to voice recording</a><h1>Use an existing voice recording</h1>
+<p>Use a recording of your own voice. Project X will review it before training. You can upload a PCM WAV file here, or give the file and your session ID to Project X. You must listen to and approve the saved recording yourself.</p>
+<p id="status" role="status" aria-live="polite">Checking your account...</p>
+<section id="consent" hidden><h2>Your permission</h2><p id="notice"></p><a href="/consent" target="_blank" rel="noopener">Read the full consent document</a>
+<label><input id="own" type="checkbox"> I am 18 or older. This recording contains my own voice, and I authorize it for voice training and certification.</label>
+<label><input type="radio" name="retention" value="DELETE_AFTER_ORDER"><span id="deleteLabel"></span></label>
+<label><input type="radio" name="retention" value="FUTURE_PURCHASES"><span id="retainLabel"></span></label>
+<label><input id="development" type="checkbox"><span id="developmentLabel"></span></label>
+<button id="create" type="button">Create my recording session</button></section>
+<section id="source" hidden><h2>Your saved recording</h2><p>Session ID: <small id="sessionId"></small></p>
+<input id="file" type="file" accept=".wav,audio/wav"><button id="upload" type="button">Upload recording</button>
+<p>PCM WAV, up to 64 MiB. If Project X is uploading your file, return here and refresh to listen before approving it.</p>
+<audio id="preview" controls hidden></audio><small id="fingerprint"></small>
+<label><input id="approve" type="checkbox"> I listened to this saved recording, confirm it is my own voice, and approve this exact file for training.</label>
+<button id="submit" type="button" disabled>Approve recording and request training</button></section>
+<section id="progress" hidden><h2>Voice profile preparation</h2><p id="phase"></p><div id="options"></div><button id="newSession" type="button">Submit another recording</button></section>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);let config,session,busy=false,revision=0;
+async function api(url,options={}){const r=await fetch(url,{credentials:'same-origin',...options});let b;try{b=await r.json();}catch{throw Error('Project X returned an unreadable response.');}if(!r.ok)throw Error(b.error||'The request could not be completed.');return b;}
+function message(s){$('status').textContent=s;}
+async function action(fn){if(busy)return;busy=true;for(const b of document.querySelectorAll('button'))b.disabled=true;try{await fn();}catch(e){message(e.message);}finally{busy=false;render();}}
+function render(){
+ $('consent').hidden=Boolean(session);$('source').hidden=!session||session.status!=='RECORDING';$('progress').hidden=!session||session.status==='RECORDING';
+ const clip=session?.sections?.['1']?.takes?.[0];$('create').disabled=busy;$('upload').disabled=busy||Boolean(clip);$('file').disabled=busy||Boolean(clip);
+ $('submit').disabled=busy||!clip||!$('approve').checked;$('newSession').disabled=busy;
+ if(session)$('sessionId').textContent=session.session_id;
+ if(clip){$('preview').hidden=false;const url='/api/sessions/'+encodeURIComponent(session.session_id)+'/clips/'+encodeURIComponent(clip.clip_id);if($('preview').getAttribute('src')!==url){$('preview').src=url;$('approve').checked=false;$('submit').disabled=true;}$('fingerprint').textContent='Recording fingerprint: '+clip.sha256;}
+}
+$('approve').onchange=render;
+$('newSession').onclick=()=>{if(busy)return;++revision;session=null;$('preview').removeAttribute('src');$('approve').checked=false;message('Review your permissions before creating another recording session.');render();};
+$('create').onclick=()=>action(async()=>{
+ const retention=document.querySelector('input[name=retention]:checked')?.value;
+ if(!$('own').checked||!retention)throw Error('Confirm your own voice and choose a retention option.');
+ const result=await api('/api/sessions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({training_source:'SUPPLIED_RECORDING',consent:{accepted:true,version:config.consent_version,retention_choice:retention,development_use:$('development').checked,adult_confirmed:true,own_voice_confirmed:true}})});
+ session=result.session;message('Session created. Upload your recording, or give this session ID to Project X.');
+});
+$('upload').onclick=()=>action(async()=>{const f=$('file').files[0];if(!f||!f.name.toLowerCase().endsWith('.wav')||f.size>64*1024*1024)throw Error('Choose a PCM WAV file no larger than 64 MiB.');const result=await api('/api/sessions/'+encodeURIComponent(session.session_id)+'/supplied-recording',{method:'POST',headers:{'Content-Type':'audio/wav'},body:f});session=result.session;message('Recording saved. Listen before approving it.');});
+$('submit').onclick=()=>action(async()=>{const result=await api('/api/sessions/'+encodeURIComponent(session.session_id)+'/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_sha256:session.sections['1'].takes[0].sha256,approve_supplied_recording:true,start_training:true})});session=result.session;$('preview').removeAttribute('src');message('Submitted. Project X must review your recording before training starts.');});
+async function refresh(){
+ if(!session||busy)return;
+ const sid=session.session_id,request=++revision,result=await api('/api/sessions/'+encodeURIComponent(sid));
+ if(request!==revision||session.session_id!==sid)return;session=result.session;render();
+ if(session.status==='RECORDING')return;
+ const flow=await api('/api/sessions/'+encodeURIComponent(sid)+'/phone-flow');if(request!==revision||session.session_id!==sid)return;
+ $('phase').textContent=({SOURCE_REVIEW:'Waiting for Project X to review your supplied recording.',PREPARING:'Preparing your voice profile.',TRAINING:'Training your voice profile.',CERTIFYING:'Verifying your voice profile.',READY:'Your voice profile is ready.',REVIEW_REQUIRED:'Project X needs to review this recording.',FAILED:'Processing needs Project X attention.',KEY_SELECTION:'Listen and choose the voice that sounds most natural.'})[flow.phase]||'Waiting for transfer or source review.';
+ $('options').replaceChildren();
+ for(const option of flow.options||[]){const box=document.createElement('div'),audio=document.createElement('audio'),button=document.createElement('button');audio.controls=true;audio.src=option.url;button.textContent=option.label;button.disabled=busy||flow.selection_pending;button.onclick=()=>action(async()=>{await api('/api/sessions/'+encodeURIComponent(sid)+'/phone-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({package_id:flow.package_id,shift:option.shift})});await refresh();});box.append(audio,button);$('options').append(box);}
+}
+(async()=>{try{
+ config=await api('/api/config');if(!config.capture_enabled||!config.supplied_recordings_enabled||config.capture_mode!=='CUSTOMER')throw Error('Existing-recording intake is not enabled for this signed-in account. Return to Project X to sign in.');
+ $('notice').textContent=config.consent_notice;$('deleteLabel').textContent=config.consent_choices.delete_after_order;$('retainLabel').textContent=config.consent_choices.future_purchases;$('developmentLabel').textContent=config.consent_choices.development_use;
+ const result=await api('/api/sessions');session=result.sessions.find(s=>s.training_source==='SUPPLIED_RECORDING'&&s.status==='RECORDING')||null;
+ if(!session){const pending=result.sessions.find(s=>s.training_source==='SUPPLIED_RECORDING');if(pending)session=pending;}
+ message('Signed in to Project X.');render();await refresh();setInterval(()=>refresh().catch(e=>message(e.message)),10000);
+}catch(e){message(e.message);}})();
+</script></body></html>

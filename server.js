@@ -75,7 +75,7 @@ function optionalAuthenticatedMember(req, res, next) {
 
 function customerTestAccess(req, config = JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'))) {
   const allowedEmail = normalizeEmail(config.customer_test_account_email);
-  return config.customer_capture_scope === 'ACCOUNT_TEST' &&
+  return ['ACCOUNT_TEST', 'LINKED_CUSTOMERS'].includes(config.customer_capture_scope) &&
     Boolean(req.memberId) && allowedEmail.length <= 254 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(allowedEmail) &&
     normalizeEmail(req.memberEmail) === allowedEmail;
@@ -90,7 +90,8 @@ function requireCaptureAccess(req, res, next) {
     req.captureProgram = 'LIMITED_HELPER_PILOT';
     return next();
   }
-  if (!customerTestAccess(req)) return res.status(403).json({ error: 'Customer capture is restricted to the approved account training test.' });
+  const config = JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'));
+  if (!customerTestAccess(req, config) && !require('./customer-capture-access').linkedCustomerAccess(req, config)) return res.status(403).json({ error: 'Customer capture is not enabled for this account.' });
   req.captureProgram = 'CUSTOMER';
   next();
 }
@@ -330,6 +331,7 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/', (req, res) => res.redirect(302, '/voice-capture'));
+app.get('/voice-recording-upload', (req,res)=>res.sendFile(path.join(ROOT,'public','voice-recording-upload.html')));
 app.get('/voice-capture', (req, res) => res.sendFile(path.join(ROOT, 'public', 'voice-capture.html')));
 app.get('/consent', (req, res) => res.sendFile(path.join(ROOT, 'public', 'consent.html')));
 app.get('/pilot-consent', (req, res) => res.sendFile(path.join(ROOT, 'public', 'pilot-consent.html')));
@@ -372,8 +374,10 @@ app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
     if (mode === 'INVALID') return res.json({ capture_mode: 'INVALID', capture_enabled: false, prompts_ready: false, sections: [] });
     res.json({
       capture_mode: 'CUSTOMER',
-      capture_scope: 'ACCOUNT_TEST',
+      capture_scope: config.customer_capture_scope,
       customer_test_access: customerTestAccess(req, config),
+      customer_capture_access: customerTestAccess(req, config) || require('./customer-capture-access').linkedCustomerAccess(req, config),
+      supplied_recordings_enabled: config.supplied_recordings_enabled === true,
       consent_version: configuredConsentVersion,
       consent_notice: config.consent_notice,
       consent_choices: config.consent_choices || {},
@@ -381,7 +385,7 @@ app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
       finish_standard: config.finish_standard || null,
       consent_draft: !consentApproved,
       prompts_ready: promptsReady,
-      capture_enabled: consentApproved && promptsReady && customerTestAccess(req, config),
+      capture_enabled: consentApproved && promptsReady && (customerTestAccess(req, config) || require('./customer-capture-access').linkedCustomerAccess(req, config)),
       special_message: SPECIAL_MESSAGE,
         sections: config.sections.map(section => ({
         id: section.id, title: section.title, instructions: section.instructions,
@@ -486,6 +490,8 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
       await writeManifest(manifest);
       return res.status(201).json({ session: publicManifest(manifest) });
     }
+    const sourceMode = req.body?.training_source || 'GUIDED_RECORDING';
+    if (!['GUIDED_RECORDING', 'SUPPLIED_RECORDING'].includes(sourceMode) || (sourceMode === 'SUPPLIED_RECORDING' && config.supplied_recordings_enabled !== true)) return res.status(400).json({error:'This recording source is not enabled.'});
     const consentVersion = process.env.VOICE_CONSENT_VERSION || config.consent_version;
     const choiceLabels = config.consent_choices || {};
     const choicesReady = ['delete_after_order', 'future_purchases', 'development_use']
@@ -528,6 +534,8 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
     const manifest = {
       schema_version: 'PX-TIER1-CAPTURE-SESSION-1.0.0',
       program: 'CUSTOMER',
+      training_source: sourceMode,
+      capture_scope: config.customer_capture_scope,
       session_id: sessionId,
       owner_member_id: req.memberId,
       created_at: now,
@@ -586,6 +594,7 @@ app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigi
     try {
       const manifest = req.manifest;
       if (manifest.status !== 'RECORDING') return res.status(409).json({ error: 'This session no longer accepts recordings.' });
+      if (manifest.training_source === 'SUPPLIED_RECORDING') return res.status(409).json({error:'Use the supplied-recording upload for this session.'});
       const section = Number(req.body?.section);
       if (!Number.isInteger(section) || section < 1 || section > SPECIAL_MESSAGE.id) return res.status(400).json({ error: 'Section must be between 1 and 9.' });
       const isMessage = section === SPECIAL_MESSAGE.id;
@@ -685,6 +694,8 @@ app.delete('/api/sessions/:sessionId/clips/:clipId', authenticatedMember, requir
   }
   res.json({ ok: true, deleted_clip_id: clip.clip_id, session: publicManifest(manifest) });
 });
+
+require('./supplied-recording').attachSuppliedRecording(app, {express, authenticatedMember, requireSameOrigin, requireCaptureAccess, transferAuth, ownedManifest, readManifest, writeManifest, safeSessionId, sessionPath, publicManifest, lockSessionRequest, directoryBytes, dataDir:DATA_DIR, maxStoreBytes:MAX_STORE_BYTES, config:()=>JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'))});
 
 app.post('/api/sessions/:sessionId/complete', authenticatedMember, requireSameOrigin, requireCaptureAccess, ownedManifest, async (req, res, next) => {
   try {

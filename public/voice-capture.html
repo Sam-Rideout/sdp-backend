@@ -545,12 +545,13 @@ async function initialize() {
     $('consentDraft').hidden=!config.consent_draft;
     if(!config.capture_enabled) $('setupBlock').textContent=pilotMode
       ? (!config.prompts_ready ? 'Pilot recording is disabled until all eight prompts are available.' : 'Pilot access is limited to invited Wix sign-in emails.')
-      : (config.customer_test_access === false
+      : ((config.customer_capture_access ?? config.customer_test_access) === false
         ? 'Customer capture is currently available only to the approved account training test.'
         : config.consent_draft
         ? 'New sessions are disabled until the consent wording and all eight section prompts are approved.'
         : 'New sessions are disabled until all eight section prompts are configured.');
     $('setupBlock').hidden=config.capture_enabled;
+    if(config.capture_enabled && config.supplied_recordings_enabled){const a=document.createElement('a');a.href='/voice-recording-upload';a.textContent='Use an existing voice recording instead';$('startCard').appendChild(a);}
     $('deleteAfterOrder').addEventListener('change',()=>syncConsentControls('deleteAfterOrder'));
     $('futurePurchases').addEventListener('change',()=>syncConsentControls('futurePurchases'));
     $('developmentUse').addEventListener('change',()=>syncConsentControls('developmentUse'));
