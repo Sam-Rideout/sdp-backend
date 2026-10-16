@@ -8,6 +8,7 @@ const {validateExisting, consentHash} = require('./existing-profile-status');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 
 function createProfileCatalog({dataDir, ownedSessions, validateRecord}) {
+  const withdrawals = require('./profile-deletion').createProfileDeletionStore(dataDir);
   const legacy = member => path.join(dataDir, 'voice-profile-status', hash(member) + '.json');
   const folder = member => path.join(dataDir, 'voice-profile-records', hash(member));
   async function read(file) {
@@ -30,7 +31,7 @@ function createProfileCatalog({dataDir, ownedSessions, validateRecord}) {
       if (old?.session_id === manifest.session_id) record = old;
     }
     if (record) validateRecord(record, manifest);
-    return record;
+    return record ? withdrawals.view(member, record) : record;
   }
   async function records(member) {
     const sessions = await ownedSessions(member);
@@ -53,7 +54,7 @@ function createProfileCatalog({dataDir, ownedSessions, validateRecord}) {
       if (!entry.isFile()) throw new Error('Existing profile must be a regular file.');
       const file = path.join(externalFolder, entry.name);
       if ((await fs.stat(file)).size > 16384) throw new Error('Existing profile metadata is too large.');
-      const record = await read(file);
+      let record = await read(file);
       const manifest = sessions.find(m => m.session_id === record.session_id);
       // Removed consent sessions cannot authorize any new or pending use.
       if (!manifest) continue;
@@ -61,6 +62,7 @@ function createProfileCatalog({dataDir, ownedSessions, validateRecord}) {
       if (entry.name !== hash(record.voice_profile_id) + '.json') throw new Error('Existing profile storage identity differs.');
       if (manifest.consent?.retention_choice !== 'FUTURE_PURCHASES' ||
           consentHash(manifest.consent) !== record.consent_sha256) continue;
+      record = await withdrawals.view(member, record);
       result.push({record, manifest, selectable:record.status === 'READY'});
     }
     const ids = result.filter(x => x.record.status === 'READY').map(x => x.record.voice_profile_id);
@@ -84,8 +86,11 @@ function createProfileCatalog({dataDir, ownedSessions, validateRecord}) {
     return (await records(member)).map(({record:r, manifest:m, selectable}, i) => ({
       voice_profile_id: r.voice_profile_id || '',
       status:r.status, selectable,
-      label:typeof r.display_name === 'string' && r.display_name.length <= 200 ? r.display_name : 'Saved voice profile',
+      label:typeof r.display_name === 'string' && r.display_name.length <= 200 ? r.display_name :
+        (m.training_source === 'SUPPLIED_RECORDING' ? 'Supplied recording profile' : 'Website recording profile'),
       created_at:r.created_at || m.created_at, updated_at:r.updated_at,
+      deletion_requested:r.deletion_requested === true,
+      deletion_status:r.deletion_status || '',
       preview_available:false
     }));
   }
@@ -99,6 +104,7 @@ function createProfileCatalog({dataDir, ownedSessions, validateRecord}) {
       throw e;
     }
     try {
+      await withdrawals.assertPublishable(member, record, manifest);
       const sessions = await ownedSessions(member);
       const old = await read(legacy(member));
       if (old) {
@@ -116,11 +122,14 @@ function createProfileCatalog({dataDir, ownedSessions, validateRecord}) {
     } finally { await fs.rmdir(lock); }
   }
   async function publishExisting(record) {
+    return withdrawals.exclusive(record.owner_member_id, async () => {
     const sessions = await ownedSessions(record.owner_member_id);
     const manifest = sessions.find(m => m.session_id === record.session_id);
     validateRecord(record, manifest); validateExisting(record, manifest);
     if (consentHash(manifest.consent) !== record.consent_sha256) throw new Error('Existing profile consent changed.');
+    await withdrawals.assertPublishable(record.owner_member_id, record, manifest);
     await write(path.join(folder(record.owner_member_id), 'existing', hash(record.voice_profile_id) + '.json'), record);
+    });
   }
   return {recordFor, records, readyProfile, selectableProfile, publicProfiles, publish, publishExisting};
 }

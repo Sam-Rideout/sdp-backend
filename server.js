@@ -28,6 +28,10 @@ const DATA_DIR = path.resolve(process.env.VOICE_DATA_DIR ||
   (process.env.RENDER ? '/var/data/project-x-voice-capture' : './voice-data'));
 const SESSION_DIR = path.join(DATA_DIR, 'sessions');
 const REPLAY_DIR = path.join(DATA_DIR, 'used-handoff-tickets');
+const profileErasure = require('./profile-erasure').createProfileErasure({
+  dataDir: DATA_DIR, profiles: member => profileStatusBridge.profiles(member),
+  store: require('./profile-deletion').createProfileDeletionStore(DATA_DIR)
+});
 const SECTION_CONFIG = path.resolve(process.env.VOICE_SECTION_CONFIG || path.join(ROOT, 'config', 'capture-sections.json'));
 const PILOT_CONSENT_VERSION = 'limited-helper-pilot-2026-10-03-v1';
 const PILOT_CONSENT_NOTICE = 'LIMITED HELPER PILOT. This is a test of the recording workflow, not a customer order. Your recordings will be used only to test and improve the recording process and capture quality. They will not be used in customer orders or production machine-learning training. The recording clips are stored temporarily on Render while they are transferred to Sam’s PC. After the local transfer is verified, the live Render audio files are deleted. Render also creates encrypted daily disk snapshots; Render documents that snapshots are kept for at least 7 days and does not publish a maximum retention period. Deleted live files may therefore remain in snapshots for an unknown period. The local pilot copy will be kept only while the limited pilot is active, unless you ask for deletion sooner. Contact Sam at sam.rideout.me@gmail.com to request deletion or stop participating. Do not continue if you do not agree.';
@@ -96,6 +100,7 @@ function requireCaptureAccess(req, res, next) {
   next();
 }
 
+app.use(profileErasure.middleware);
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use((req, res, next) => {
@@ -780,6 +785,12 @@ app.post('/api/transfer/sessions/:sessionId/confirm', transferAuth, express.json
 const profileStatusBridge = require('./voice-profile-status').attachProfileStatus(app, {
   dataDir: DATA_DIR, sessionDir: SESSION_DIR, readManifest, safeSessionId,
   verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth, customerTestAccess
+});
+
+profileErasure.attach(app, transferAuth);
+require('./profile-deletion').attachProfileDeletion(app, {
+  dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers,
+  transferAuth, profiles: profileStatusBridge.profiles
 });
 
 require('./voice-phone-flow').attachPhoneFlow(app, {

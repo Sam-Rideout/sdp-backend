@@ -64,7 +64,18 @@ export const getVoiceProfileStatus = webMethod(Permissions.SiteMember,async () =
       label:p.label,status:p.status,selectable:p.selectable,
       createdAt:typeof p.created_at === 'string' ? p.created_at : '',
       updatedAt:typeof p.updated_at === 'string' ? p.updated_at : '',
+      deletionRequested:p.deletion_requested === true,
+      deletionStatus:typeof p.deletion_status === 'string' ? p.deletion_status : '',
       previewAvailable:false}))};
+});
+
+export const requestVoiceProfileDeletion = webMethod(Permissions.SiteMember,async (voiceProfileId,confirmed) => {
+  const memberId = await requireMemberId();
+  if (!validText(voiceProfileId) || confirmed !== true) throw new Error('Choose and confirm the exact voice profile to delete.');
+  const ticket = await signedTicket(memberId,'profile-deletion-request',{voice_profile_id:voiceProfileId,confirm_profile_deletion:true});
+  const result = await postTicket('/api/wix/request-profile-deletion',ticket);
+  if (result?.ok !== true || result.voice_profile_id !== voiceProfileId || !['REQUESTED','CLAIMED','PARTIAL','DELETED'].includes(result.status)) throw new Error('The profile deletion response did not match your selection.');
+  return {ok:true,status:result.status,voiceProfileId:result.voice_profile_id,requestId:result.request_id,accountDeleted:false,physicalDeletionVerified:result.physical_deletion_verified === true};
 });
 
 export const createSongSelectionRequest = webMethod(Permissions.SiteMember,async () => {
