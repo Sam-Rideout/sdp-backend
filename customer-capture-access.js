@@ -2,6 +2,15 @@
 
 // Capture access is independent of complimentary order/payment authority.
 function linkedCustomerAccess(req, config) {
+  // req.memberId and req.memberEmail must come from a verified session.
+  if (config.customer_capture_scope === 'REGISTERED_CUSTOMERS') {
+    return config.customer_intake_release_approved === true
+      && typeof req.memberId === 'string'
+      && /^[a-zA-Z0-9_-]{3,200}$/.test(req.memberId)
+      && typeof req.memberEmail === 'string'
+      && req.memberEmail.length <= 254
+      && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(req.memberEmail);
+  }
   return config.customer_capture_scope === 'LINKED_CUSTOMERS'
     && config.customer_intake_release_approved === true
     && typeof req.memberId === 'string'
