@@ -152,9 +152,9 @@ select{background:#242a30;color:#fff}
 <div class="shell">
   <header>
     <p class="brand">PROJECT X · VOICE CAPTURE · TIER 1</p>
-    <h1>Voice recording session</h1>
+    <h1 id="capturePageTitle">Voice recording session</h1>
     <p id="signInReminder" class="notice"><strong>You must be signed in to your Project X account to continue.</strong></p>
-    <p class="muted">This guided recording takes about 10–20 minutes; one pass is about 10 minutes. For a stronger, more useful voice profile, repeat at least three numbered sections twice. You can repeat any section more than twice. Use a quiet room and keep a steady distance from your microphone. Record your voice by itself: no backing music, reverb, pitch correction, compression, or doubling. Sing comfortably without straining. Mistakes are fine: pause, breathe, and repeat the phrase. Each take is saved separately, so you can review and redo a section without overwriting an earlier take.</p>
+    <p id="capturePageIntroduction" class="muted">This guided recording takes about 10–20 minutes; one pass is about 10 minutes. For a stronger, more useful voice profile, repeat at least three numbered sections twice. You can repeat any section more than twice. Use a quiet room and keep a steady distance from your microphone. Record your voice by itself: no backing music, reverb, pitch correction, compression, or doubling. Sing comfortably without straining. Mistakes are fine: pause, breathe, and repeat the phrase. Each take is saved separately, so you can review and redo a section without overwriting an earlier take.</p>
     <p id="account" class="status" role="status" aria-live="polite">Checking your member sign-in…</p>
     <a id="headerReturnProjectX" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs">Return to Project X</a>
   </header>
@@ -194,6 +194,18 @@ select{background:#242a30;color:#fff}
     <p id="setupBlock" class="help" hidden>New sessions are disabled until the prompts and consent wording have been approved in the server configuration.</p>
   </section>
 
+  <section id="progressReturnCard" class="card" hidden aria-labelledby="progressReturnTitle">
+    <h2 id="progressReturnTitle">Voice Profile Progress</h2>
+    <p id="progressReturnStatus" role="status" aria-live="polite">Finding your voice-profile progress…</p>
+    <div id="progressSessionChoices" hidden>
+      <label for="progressSessions">Choose a submitted recording</label>
+      <select id="progressSessions"></select>
+      <button id="openProgressSession" class="primary" type="button">View selected progress</button>
+    </div>
+    <button id="retryProgressReturn" class="quiet" type="button">Refresh voice-profile progress</button>
+    <a class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs">Return to Project X</a>
+  </section>
+
   <section id="phoneTrainingCard" class="card" hidden aria-labelledby="phoneTrainingTitle">
     <h2 id="phoneTrainingTitle">Your voice profile</h2>
     <p id="phoneTrainingStatus" role="status" aria-live="polite"></p>
@@ -203,6 +215,7 @@ select{background:#242a30;color:#fff}
     <p id="phonePreparationCheckBack" class="help" style="font-size:16px;line-height:1.5"></p>
     <div id="phoneKeyOptions"></div>
     <p id="phoneTrainingHelp" class="help">You can return to this page after signing in to the same account. Processing continues on Project X’s PC.</p>
+    <button id="chooseOtherProgress" class="quiet" type="button" hidden>View another submitted profile</button>
     <button id="phoneTrainingEnd" class="quiet" type="button" hidden>Start another recording session</button>
     <a id="phoneChooseSong" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs/blank-1" hidden>Choose your song</a>
     <a id="phoneViewPreparation" class="quiet return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs/blank-7">View preparation status in My Orders</a>
@@ -293,6 +306,7 @@ select{background:#242a30;color:#fff}
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
+const progressReturnMode=new URLSearchParams(location.search).get('view')==='progress'||new URLSearchParams(location.hash.slice(1)).get('view')==='progress';
 let config = null, activeSession = null, mediaRecorder = null, stream = null;
 let chunks = [], takeBlob = null, takeUrl = null, startedAt = 0, takeDuration = 0, tick = null, busy = false;
 let audioContext = null, analyser = null, meterSamples = null, meterFrame = null, recordingInterrupted = false, activeSectionId = 1;
@@ -479,7 +493,8 @@ async function refreshSessions() {
     wrap.hidden=false;
     for(const item of resumable){const option=document.createElement('option'); option.value=item.session_id; option.textContent=`${new Date(item.created_at).toLocaleString()} · ${item.status.replaceAll('_',' ')}`; select.appendChild(option);}
   } else wrap.hidden=true;
-  $('startCard').hidden=false;
+  $('startCard').hidden=progressReturnMode;
+  return sessions;
 }
 
 function retentionChoice() {
@@ -515,10 +530,86 @@ async function selectSession(id) {
   } else {$('sectionSelect').disabled=false;}
 }
 
+// PX_DIRECT_PROGRESS_RETURN
+function showProgressReturn(message) {
+  $('startCard').hidden=true;
+  $('captureCard').hidden=true;
+  $('transferCompleteCard').hidden=true;
+  $('phoneTrainingCard').hidden=true;
+  $('progressReturnCard').hidden=false;
+  $('progressReturnStatus').textContent=message;
+}
+
+function progressSessionCandidates(sessions) {
+  return sessions.filter(item=>item.program==='CUSTOMER' &&
+    item.phone_training?.accepted===true &&
+    ['READY_FOR_TRANSFER','TRANSFERRED_AUDIO_DELETED'].includes(item.status))
+    .sort((a,b)=>{
+      const time=item=>{const value=Date.parse(item.phone_training.accepted_at||item.created_at);return Number.isFinite(value)?value:0;};
+      return time(b)-time(a)||a.session_id.localeCompare(b.session_id);
+    });
+}
+
+async function returnToVoiceProgress(sessions) {
+  showProgressReturn('Finding your voice-profile progress…');
+  const candidates=progressSessionCandidates(sessions);
+  const picker=$('progressSessions');
+  picker.replaceChildren();
+  $('progressSessionChoices').hidden=true;
+  $('chooseOtherProgress').hidden=true;
+  for(const item of candidates) {
+    const option=document.createElement('option');
+    option.value=item.session_id;
+    const time=new Date(item.phone_training.accepted_at||item.created_at);
+    option.textContent='Submitted '+(Number.isFinite(time.getTime())?time.toLocaleString():'date unavailable');
+    picker.appendChild(option);
+  }
+  if(!candidates.length) {
+    $('progressReturnStatus').textContent='No submitted voice-profile session was found for this signed-in account. Return to Project X if you want to begin recording.';
+    return;
+  }
+  if(candidates.length>20) {
+    $('progressSessionChoices').hidden=false;
+    $('progressReturnStatus').textContent='Choose the submitted recording whose progress you want to view.';
+    return;
+  }
+  let chosen=candidates[0];
+  if(candidates.length>1) {
+    // Prefer the newest active preparation over completed/failed older profiles.
+    // All IDs come from the signed-in owner's /api/sessions response.
+    for(const candidate of candidates) {
+      const snapshot=await api(`/api/sessions/${encodeURIComponent(candidate.session_id)}/phone-flow`,{cache:'no-store'});
+      if(snapshot.session_id!==candidate.session_id ||
+          !['QUEUED','PREPARING','TRAINING','KEY_SELECTION','CERTIFYING','SOURCE_REVIEW','READY','FAILED','REVIEW_REQUIRED'].includes(snapshot.phase)) {
+        throw new Error('Your processing-session status could not be verified.');
+      }
+      if(['QUEUED','PREPARING','TRAINING','KEY_SELECTION','CERTIFYING','SOURCE_REVIEW'].includes(snapshot.phase)) {chosen=candidate;break;}
+    }
+  }
+  await openProgressSession(chosen.session_id);
+}
+
+async function openProgressSession(id) {
+  // Never accept an arbitrary URL/session ID as authority to resume.
+  const options=Array.from($('progressSessions').options);
+  if(!options.some(option=>option.value===id))throw new Error('Choose one of your submitted recording sessions.');
+  await selectSession(id);
+  $('progressReturnCard').hidden=true;
+  $('chooseOtherProgress').hidden=options.length<2;
+}
+// PX_DIRECT_PROGRESS_RETURN_END
+
+
 async function initialize() {
   try {
+    if(progressReturnMode) {
+      document.title='Project X — Voice Profile Progress';
+      $('capturePageTitle').textContent='Voice Profile Progress';
+      $('capturePageIntroduction').hidden=true;
+      showProgressReturn('Checking your sign-in and finding your processing session…');
+    }
     const hash=new URLSearchParams(location.hash.slice(1)); const ticket=hash.get('ticket');
-    if(ticket){history.replaceState(null,'',location.pathname); await api('/api/session/exchange',{method:'POST',headers:csrfHeaders(),body:JSON.stringify({ticket})});}
+    if(ticket){history.replaceState(null,'',location.pathname+(progressReturnMode?'?view=progress':'')); await api('/api/session/exchange',{method:'POST',headers:csrfHeaders(),body:JSON.stringify({ticket})});}
     config=await api('/api/config');
     // Keep the eight required training prompts unchanged.
     if(config.special_message)config.sections.push(config.special_message);
@@ -568,8 +659,9 @@ async function initialize() {
       try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify(consentBody)});await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
       catch(error){setStatus(error.message);$('create').disabled=!config.capture_enabled||(pilotMode?!$('pilotUnderstood').checked:!customerConsentAccepted());}
     });
-    await refreshSessions();
+    const ownedSessions=await refreshSessions();
     $('account').textContent='Signed in to Project X.';
+    if(progressReturnMode)await returnToVoiceProgress(ownedSessions);
     $('deleteSession').addEventListener('click',()=>deleteEntireSession(activeSession?.session_id));
     $('deleteSelectedSession').addEventListener('click',()=>deleteEntireSession($('sessions').value));
     $('resume').addEventListener('click',async()=>{try{await selectSession($('sessions').value);}catch(error){setStatus(error.message);}});
@@ -581,7 +673,7 @@ async function initialize() {
     $('finish').addEventListener('click',finishSession);
     $('closeSavedPlayback').addEventListener('click',clearSavedPlayback);
     $('logout').addEventListener('click',async()=>{if(busy||takeBlob){setStatus('Finish saving or discard the unsaved take before signing out.','sectionStatus');return;}clearSavedPlayback();await api('/api/session/logout',{method:'POST'});location.reload();});
-  }catch(error){$('account').textContent=error.message; if(error.message.includes('Sign in')) $('account').textContent='You must be signed in to your Project X account to continue. Return to the Project X website, sign in, then reopen Voice Capture.';}
+  }catch(error){if(progressReturnMode)showProgressReturn('Could not reopen progress. Use Refresh voice-profile progress to try again, or return to Project X and reopen this page after signing in.');$('account').textContent=error.message; if(error.message.includes('Sign in')) $('account').textContent='You must be signed in to your Project X account to continue. Return to the Project X website, sign in, then reopen Voice Capture.';}
 }
 
 async function startRecording() {
@@ -951,6 +1043,22 @@ document.querySelectorAll('.return-project-x').forEach(link=>{
         : 'Finish the current action and wait for your take to save before returning to Project X.');
     }
   });
+});
+$('chooseOtherProgress').addEventListener('click',()=>{
+  showProgressReturn('Choose the submitted recording whose progress you want to view.');
+  $('progressSessionChoices').hidden=false;
+});
+$('openProgressSession').addEventListener('click',async()=>{
+  try{await openProgressSession($('progressSessions').value);}
+  catch(error){showProgressReturn(error.message);$('progressSessionChoices').hidden=false;}
+});
+let progressReturnBusy=false;
+$('retryProgressReturn').addEventListener('click',async()=>{
+  if(progressReturnBusy)return;
+  progressReturnBusy=true;$('retryProgressReturn').disabled=true;
+  try{const sessions=await refreshSessions();await returnToVoiceProgress(sessions);}
+  catch(error){showProgressReturn('Could not refresh your progress. Return to Project X and sign in again if needed.');}
+  finally{progressReturnBusy=false;$('retryProgressReturn').disabled=false;}
 });
 initialize();
 </script>
