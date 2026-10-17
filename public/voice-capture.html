@@ -1003,7 +1003,7 @@ function renderPhonePreparation(){
   if(snapshot.phase==='READY')$('phonePreparationCheckBack').textContent='Your voice profile is ready. You can now choose your birthday song.';
   else if(terminal)$('phonePreparationCheckBack').textContent='Additional recordings have not been requested. Contact Project X at sdp.projectx.contact@gmail.com.';
   else if(snapshot.phase==='KEY_SELECTION')$('phonePreparationCheckBack').textContent='Complete the voice-preview choice below to continue preparation.';
-  else $('phonePreparationCheckBack').textContent='Allow about an hour for preparation once processing begins. This is an estimate; waiting time or technical issues can make it longer. Check back in about 10 minutes, or leave this page open for automatic updates.'+(!fresh&&snapshot.phase!=='QUEUED'?' A recent progress update is not available; preparation may still be running.':'');
+  else $('phonePreparationCheckBack').textContent='Allow 1 to 2 hours for preparation once processing begins. This is an estimate; waiting time or technical issues can make it longer. Check back in about 10 minutes, or leave this page open for automatic updates.'+(!fresh&&snapshot.phase!=='QUEUED'?' A recent progress update is not available; preparation may still be running.':'');
 }
 setInterval(()=>{if(!$('phoneTrainingCard').hidden)renderPhonePreparation();},1000);
 function showPhoneTraining(session){
