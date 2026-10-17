@@ -140,8 +140,9 @@ function attachBirthdayMessage(app,c){
    res.json({ok:true,status:'TRANSFERRED_AUDIO_DELETED',selection_id:s.selection_id,clip_id:s.audio.clip_id});
   });
  }catch(e){next(e);}});
- return {async freezeForCommit(owner,id){
+ return {async freezeForCommit(owner,id,expectedCustomerId){
   return lock(id,async()=>{
+   if(expectedCustomerId!==undefined){const checked=await selection(id,owner);if(checked.record.customer_id!==expectedCustomerId)fail('Song selection ownership differs from the approved customer.');}
    const {sel,s,orders}=await available(id,owner,false,true);
    if(s.commit_id===id)return {selection:sel.record,selection_sha256:sel.sha256,message:{choice:s.choice,clip_id:s.audio?.clip_id||'',sha256:s.audio?.sha256||''}};
    if(s.claim_id||orders.length)fail('This song selection already has an order.');

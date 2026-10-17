@@ -2,6 +2,7 @@
 // Explicit account-test commits only; never launches local audio processing.
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
 const {uuid}=require('./birthday-message');
+const songAccess=require('./complimentary-song-access');
 const member=s=>typeof s==='string'&&s.length>=3&&s.length<=200&&!/[\x00-\x1f\x7f]/.test(s)&&s.trim()===s;
 function error(message,status=409){const e=new Error(message);e.status=status;throw e;}
 async function read(p){try{return JSON.parse(await fs.readFile(p,'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}}
@@ -10,22 +11,34 @@ const publicState=r=>r?{selection_id:r.selection_id,state:r.state,order_id:r.ord
 function authorized(c,now){return Boolean(c&&c.iss==='wix'&&c.aud==='project-x-orders'&&c.purpose==='create-song'&&member(c.sub)&&uuid(c.selection_id)&&typeof c.email==='string'&&c.email.length<=254&&Number.isInteger(c.iat)&&Number.isInteger(c.exp)&&c.iat<=now+60&&c.iat>=now-180&&c.exp>now&&c.exp<=now+180&&c.exp>c.iat&&/^[a-f0-9]{48}$/.test(c.jti||''));}
 function attachCreateSong(app,c){
  const root=path.join(c.dataDir,'song-commits');
+ const access=c.songAccess || songAccess.createAccess();
  const file=id=>{if(!uuid(id))error('Invalid selection.',400);return path.join(root,id+'.json');};
  async function lock(id,fn){await fs.mkdir(root,{recursive:true,mode:0o700});const p=file(id)+'.lock';try{await fs.mkdir(p);}catch(e){if(e.code==='EEXIST')error('Song request is being saved. Refresh shortly.');throw e;}try{return await fn();}finally{await fs.rmdir(p);}}
  async function owned(id,owner){const r=await read(file(id));if(r&&(r.schema_version!=='PX-CREATE-SONG-1.0'||r.selection_id!==id||r.owner_member_id!==owner))error('Song request is unavailable.',404);return r;}
  async function withdrawn(r){const {readCancel}=require('./wix-cancel');const s=await readCancel(c.dataDir,r.owner_member_id,'SELECTION',r.selection_id);const o=r.order_id?await readCancel(c.dataDir,r.owner_member_id,'ORDER',r.order_id):null;return [s,o].some(v=>v&&v.status!=='TOO_LATE');}
  app.post('/api/wix/create-song',async(req,res,next)=>{try{
   const a=c.verifySigned(req.body?.ticket);if(!authorized(a,Math.floor(Date.now()/1000)))return res.status(401).json({error:'Song creation authorization failed.'});
-  if(!c.customerTestAccess({memberId:a.sub,memberEmail:a.email}))return res.status(403).json({error:'Automatic song creation is restricted to the approved complimentary account test.'});
+  const approved=access.account(a.sub,a.email);
+  if(!approved)return res.status(403).json({code:'SONG_CREATION_NOT_AUTHORIZED',error:'Song creation is not enabled for this account yet. Please contact Project X.'});
   if(!await c.consumeTicket(a.jti))return res.status(401).json({error:'Authorization already used. Refresh your orders.'});
   await lock(a.selection_id,async()=>{
    let r=await owned(a.selection_id,a.sub);
-   if(r){if(await withdrawn(r))error('This song request has been withdrawn.');return res.json({ok:true,creation:publicState(r)});}
+   if(r){
+    if(await withdrawn(r))error('This song request has been withdrawn.');
+    const auth=r.test_authorization,expected=songAccess.evidence(approved);
+    if(r.frozen?.selection?.customer_id!==approved.customer_id ||
+       (auth ? JSON.stringify(Object.keys(auth).sort().map(k=>[k,auth[k]]))!==JSON.stringify(Object.keys(expected).sort().map(k=>[k,expected[k]])) : !approved.allow_legacy_commands))error('Saved song authorization differs from the approved customer.');
+    return res.json({ok:true,creation:publicState(r)});
+   }
    // Freeze uses the recorder's own file lock. If publication is interrupted,
    // repeating the same selection recovers the already frozen message choice.
-   const frozen=await c.freezeMessage(a.sub,a.selection_id);
+   const frozen=await c.freezeMessage(a.sub,a.selection_id,approved.customer_id);
+   if(frozen.selection?.customer_id!==approved.customer_id || frozen.selection?.owner_member_id!==approved.wix_member_id)error('Song selection ownership differs from the approved customer.');
+   const currentApproval=access.account(a.sub,a.email);
+   if(!currentApproval || JSON.stringify(songAccess.evidence(currentApproval))!==JSON.stringify(songAccess.evidence(approved)))error('Song test authorization changed. Please refresh your orders.');
    r={schema_version:'PX-CREATE-SONG-1.0',selection_id:a.selection_id,owner_member_id:a.sub,
     mode:'ACCOUNT_TEST',authorize_comped:true,authorize_test_email:true,state:'REQUESTED',
+    test_authorization:songAccess.evidence(approved),
     frozen,requested_at:new Date().toISOString(),updated_at:new Date().toISOString(),claim_id:null,order_id:'',run_id:''};
    await write(file(r.selection_id),r);res.json({ok:true,creation:publicState(r)});
   });

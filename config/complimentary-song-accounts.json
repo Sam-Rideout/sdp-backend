@@ -1,0 +1,22 @@
+{
+  "schema_version": "PX-COMPLIMENTARY-SONG-ACCOUNTS-1.0",
+  "enabled": true,
+  "accounts": [
+    {
+      "customer_id": "PXC-000003",
+      "wix_member_id": "29b28efa-5b13-4799-a369-6348c59c0f5e",
+      "email": "sam.rideout.me@gmail.com",
+      "complimentary_processing_approved": true,
+      "test_email_delivery_approved": true,
+      "allow_legacy_commands": true
+    },
+    {
+      "customer_id": "PXC-000004",
+      "wix_member_id": "ad658839-5770-47df-9e02-f0afe121713b",
+      "email": "tabby.rideout@gmail.com",
+      "complimentary_processing_approved": true,
+      "test_email_delivery_approved": true,
+      "allow_legacy_commands": false
+    }
+  ]
+}
