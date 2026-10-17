@@ -145,6 +145,8 @@ class Sequence:
         sys.path.insert(0,str(root/'Services/PX_Admin'))
         import px_wix_customer_link as links,px_customer_training_intake as intake,px_voice_certification_handoff as cert
         import px_customer_training_owner as owners
+        import px_customer_registration as registration
+        self.registration=registration
         self.owners=owners
         self.links=links;self.intake=intake;self.cert=cert;self.db=root/'Data/PX_Admin/PX_Admin.sqlite3'
     def push(self,sid,record,job_id,phase):
@@ -164,6 +166,7 @@ class Sequence:
             self.push(sid,existing['record'],existing['job_id'],'REVIEW_REQUIRED')
             existing['phase']='REVIEW_REQUIRED';pickup.atomic_json(state_path,existing);return
         envelope=self.links.fetch_session(self.api.url,sid,self.api.token);verify_finish(envelope)
+        self.registration.ensure_customer(self.db,envelope,sid)
         customer=self.owners.resolve(self.db,envelope,sid)
         member=customer['wix_member_id'];customer_id=customer['customer_id']
         folder=self.root/'Voices'/member/sid

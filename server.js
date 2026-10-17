@@ -28,6 +28,7 @@ const DATA_DIR = path.resolve(process.env.VOICE_DATA_DIR ||
   (process.env.RENDER ? '/var/data/project-x-voice-capture' : './voice-data'));
 const SESSION_DIR = path.join(DATA_DIR, 'sessions');
 const REPLAY_DIR = path.join(DATA_DIR, 'used-handoff-tickets');
+const customerIdentities = require('./customer-registration').createIdentityStore(DATA_DIR);
 const profileErasure = require('./profile-erasure').createProfileErasure({
   dataDir: DATA_DIR, profiles: member => profileStatusBridge.profiles(member),
   store: require('./profile-deletion').createProfileDeletionStore(DATA_DIR)
@@ -416,6 +417,7 @@ app.post('/api/session/exchange', requireSameOrigin, async (req, res, next) => {
       return res.status(401).json({ error: 'This sign-in link has already been used. Return to the member page and try again.' });
     }
     await pruneOldReplayMarkers();
+    await customerIdentities.recordVerifiedClaims(claims);
     const email = normalizeEmail(claims.email);
     const cookie = sign({ iss: 'project-x-voice-capture', sub: claims.sub, email, exp: now + COOKIE_TTL_SECONDS });
     res.setHeader('Set-Cookie', `${COOKIE_NAME}=${encodeURIComponent(cookie)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${COOKIE_TTL_SECONDS}`);
@@ -737,8 +739,11 @@ require('./voice-transfer-queue').attachTransferQueue(app, {
 });
 
 // PC-only transfer endpoints use a separate secret and do not expose member audio in browser APIs.
-app.get('/api/transfer/sessions/:sessionId', transferAuth, transferManifest, (req, res) => {
-  res.json({ profile_id: req.manifest.owner_member_id, manifest: publicManifest(req.manifest), manifest_sha256: sha256(req.rawManifest) });
+app.get('/api/transfer/sessions/:sessionId', transferAuth, transferManifest, async (req, res, next) => {
+  try {
+    const customer_identity = await customerIdentities.forTransfer(req.manifest.owner_member_id);
+    res.json({ profile_id: req.manifest.owner_member_id, manifest: publicManifest(req.manifest), manifest_sha256: sha256(req.rawManifest), customer_identity });
+  } catch (error) { next(error); }
 });
 
 app.get('/api/transfer/sessions/:sessionId/clips/:clipId', transferAuth, transferManifest, async (req, res, next) => {
