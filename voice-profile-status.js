@@ -86,6 +86,20 @@ function attachProfileStatus(app, context) {
     throw new Error('Unknown voice session state.');
   }
 
+  async function hasProcessingProfile(member) {
+    // Check every owned customer session. A READY profile or newer unfinished
+    // capture must not hide another session that is still being prepared.
+    const activePhases = new Set(['QUEUED', 'PREPARING', 'TRAINING', 'KEY_SELECTION', 'CERTIFYING', 'UNKNOWN']);
+    for (const manifest of await ownedSessions(member)) {
+      if (!['READY_FOR_TRANSFER', 'TRANSFERRED_AUDIO_DELETED'].includes(manifest.status)) continue;
+      const record = await catalog.recordFor(member, manifest);
+      if (record && record.status !== 'PROCESSING') continue;
+      const progress = await preparation(manifest, 'PROCESSING', record);
+      if (progress && activePhases.has(progress.phase)) return true;
+    }
+    return false;
+  }
+
   app.post('/api/wix/voice-profile-status', async (req, res, next) => {
     try {
       const claims = verifySigned(req.body && req.body.ticket);
@@ -107,9 +121,11 @@ function attachProfileStatus(app, context) {
       const result = await snapshot(claims.sub);
       const profiles = await catalog.publicProfiles(claims.sub);
       const selected = await catalog.selectableProfile(claims.sub);
+      const processing = await hasProcessingProfile(claims.sub);
       res.set('Cache-Control', 'no-store');
       res.json({...result, status:selected ? 'READY' : result.status,
         latest_session_status:result.status, profiles,
+        has_processing_profile:processing,
         default_voice_profile_id:selected?.voice_profile_id || ''});
     } catch (error) { next(error); }
   });

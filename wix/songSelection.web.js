@@ -59,6 +59,7 @@ export const getVoiceProfileStatus = webMethod(Permissions.SiteMember,async () =
     throw new Error('Project X returned an invalid voice-profile list.');
   }
   return {status:result.status,
+    hasProcessingProfile:result.has_processing_profile === true,
     defaultVoiceProfileId:validText(result.default_voice_profile_id) ? result.default_voice_profile_id : '',
     profiles:profiles.map(p => ({voiceProfileId:validText(p.voice_profile_id) ? p.voice_profile_id : '',
       label:p.label,status:p.status,selectable:p.selectable,
