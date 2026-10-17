@@ -146,17 +146,73 @@ select{background:#242a30;color:#fff}
 .prompt .good,.take-manager .good{color:#a9e2c0}
 @media(max-width:460px){h1{font-size:25px}.progress{flex-wrap:wrap}.recording-indicator{gap:8px;padding:10px}.take-list li{flex-wrap:wrap}.take-list .take-actions{flex-wrap:wrap}}
 
+/* SDP Songs: shared branding and a compact voice-preparation view. */
+.sdp-page-header { padding:0; overflow:hidden; }
+.sdp-topbar { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:18px 24px; background:#101010; color:#f0e9e3; }
+.sdp-wordmark { display:inline-flex; flex-direction:column; gap:2px; color:#f0e9e3; text-decoration:none; flex:0 0 auto; }
+.sdp-wordmark-name { font-size:26px; line-height:1.15; font-weight:800; letter-spacing:.07em; }
+.sdp-topbar .sdp-wordmark, .sdp-topbar .sdp-wordmark:hover { color:#f0e9e3; }
+.sdp-wordmark-project { font-size:11px; font-weight:600; letter-spacing:.22em; color:#c9c3bd; }
+header .sdp-topbar .sdp-back { display:inline-flex; width:auto; align-items:center; justify-content:center; margin:0; padding:10px 16px; min-height:44px; border:1px solid #f0e9e3; background:transparent; color:#f0e9e3; font-size:14px; }
+header .sdp-topbar .sdp-back:hover { background:#f0e9e3; color:#101010; }
+.sdp-heading { padding:24px; }
+.sdp-heading .brand { font-size:11px; letter-spacing:.14em; margin-bottom:10px; }
+.sdp-heading h1 { font-size:30px; letter-spacing:-.025em; margin:0 0 12px; }
+.sdp-heading #account { font-size:14px; min-height:0; margin:0; }
+.sdp-page-header:has(#capturePageIntroduction[hidden]) #signInReminder { display:none; }
+.sdp-page-header:has(#capturePageIntroduction[hidden]) .sdp-heading h1 { margin-bottom:8px; }
+#phoneTrainingCard, #progressReturnCard { padding:24px; background:rgba(236,231,228,.40); }
+#phoneTrainingCard h2, #progressReturnCard h2 { font-size:21px; margin-bottom:18px; }
+.sdp-stage-label { margin:0 0 6px; font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+#phoneTrainingStatus { font-size:21px; line-height:1.4; font-weight:700; margin:0 0 8px; }
+#phoneTrainingProgress { margin:0 0 18px; font-size:15px; }
+#phoneTrainingProgress:empty { display:none; }
+.sdp-clock { margin:20px 0; padding:22px; border:1px solid #383838; border-radius:6px; background:#141414; color:#f0e9e3; }
+.sdp-clock #phonePreparationTime { color:#f0e9e3; font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.45; margin:0 0 10px; }
+.sdp-clock-note { color:#d3ccc5; font-size:14px; line-height:1.55; margin:0; }
+#phonePreparationCheckBack { line-height:1.65; margin:0 0 16px; }
+#phoneTrainingHelp { font-size:14px; line-height:1.6; }
+.sdp-session-reference { margin:18px 0 0; padding-top:14px; border-top:1px solid #626262; font-size:13px; }
+.sdp-session-reference summary { cursor:pointer; font-weight:600; }
+#phoneTrainingSession { margin:10px 0 0; font-size:12px; overflow-wrap:anywhere; }
+.sdp-progress-actions { display:grid; gap:10px; margin-top:22px; padding-top:20px; border-top:1px solid #626262; }
+.sdp-progress-actions a.return-project-x, .sdp-progress-actions button { margin:0; }
+.sdp-footer { margin:16px 0 6px; text-align:center; color:#171717; font-size:12px; }
+.sdp-topbar a:focus-visible { outline:3px solid #fff; outline-offset:4px; }
+@media(min-width:760px) {
+  body { padding-top:32px; padding-bottom:32px; }
+}
+@media(max-width:460px) {
+  .sdp-topbar { gap:12px; padding:16px; }
+  .sdp-wordmark-name { font-size:21px; }
+  .sdp-wordmark-project { font-size:10px; letter-spacing:.18em; }
+  header .sdp-topbar .sdp-back { max-width:148px; padding:9px 11px; font-size:12px; line-height:1.4; }
+  .sdp-heading, #phoneTrainingCard, #progressReturnCard { padding:20px; }
+  .sdp-heading h1 { font-size:26px; }
+  #phoneTrainingStatus { font-size:19px; }
+  .sdp-clock { padding:18px; }
+  .sdp-clock #phonePreparationTime { font-size:21px; }
+}
+
 </style>
 </head>
 <body>
 <div class="shell">
-  <header>
+  <header class="sdp-page-header">
+    <div class="sdp-topbar">
+      <a class="sdp-wordmark return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs" aria-label="SDP Songs home" style="margin:0;padding:0;min-height:0;border:0;background:transparent;text-align:left">
+        <span class="sdp-wordmark-name">SDP SONGS</span>
+        <span class="sdp-wordmark-project">PROJECT X</span>
+      </a>
+      <a id="headerReturnProjectX" class="return-project-x sdp-back" href="https://brightlight506.wixstudio.com/sdp-songs">Back to SDP Songs</a>
+    </div>
+    <div class="sdp-heading">
     <p class="brand">PROJECT X · VOICE CAPTURE · TIER 1</p>
     <h1 id="capturePageTitle">Voice recording session</h1>
     <p id="signInReminder" class="notice"><strong>You must be signed in to your Project X account to continue.</strong></p>
     <p id="capturePageIntroduction" class="muted">This guided recording takes about 10–20 minutes; one pass is about 10 minutes. For a stronger, more useful voice profile, repeat at least three numbered sections twice. You can repeat any section more than twice. Use a quiet room and keep a steady distance from your microphone. Record your voice by itself: no backing music, reverb, pitch correction, compression, or doubling. Sing comfortably without straining. Mistakes are fine: pause, breathe, and repeat the phrase. Each take is saved separately, so you can review and redo a section without overwriting an earlier take.</p>
     <p id="account" class="status" role="status" aria-live="polite">Checking your member sign-in…</p>
-    <a id="headerReturnProjectX" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs">Return to Project X</a>
+    </div>
   </header>
 
   <section id="startCard" class="card" hidden>
@@ -208,18 +264,27 @@ select{background:#242a30;color:#fff}
 
   <section id="phoneTrainingCard" class="card" hidden aria-labelledby="phoneTrainingTitle">
     <h2 id="phoneTrainingTitle">Your voice profile</h2>
+    <p class="sdp-stage-label">Current stage</p>
     <p id="phoneTrainingStatus" role="status" aria-live="polite"></p>
-    <p id="phoneTrainingSession" class="help"></p>
     <p id="phoneTrainingProgress" class="help"></p>
-    <p id="phonePreparationTime" class="help" style="font-size:18px;line-height:1.5"></p>
+    <div class="sdp-clock">
+      <p id="phonePreparationTime" class="help"></p>
+      <p class="sdp-clock-note">You can leave this page and return to check your progress.</p>
+    </div>
     <p id="phonePreparationCheckBack" class="help" style="font-size:16px;line-height:1.5"></p>
     <div id="phoneKeyOptions"></div>
     <p id="phoneTrainingHelp" class="help">You can return to this page after signing in to the same account. Processing continues on Project X’s PC.</p>
+    <nav class="sdp-progress-actions" aria-label="Voice profile actions">
     <button id="chooseOtherProgress" class="quiet" type="button" hidden>View another submitted profile</button>
     <button id="phoneTrainingEnd" class="quiet" type="button" hidden>Start another recording session</button>
     <a id="phoneChooseSong" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs/blank-1" hidden>Choose your song</a>
     <a id="phoneViewPreparation" class="quiet return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs/blank-7">View preparation status in My Orders</a>
-    <a id="phoneReturnProjectX" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs">Return to Project X</a>
+    <a id="phoneReturnProjectX" class="primary return-project-x" href="https://brightlight506.wixstudio.com/sdp-songs">Back to SDP Songs</a>
+    </nav>
+    <details class="sdp-session-reference">
+      <summary>Recording reference</summary>
+      <p id="phoneTrainingSession" class="help"></p>
+    </details>
   </section>
 
   <section id="transferCompleteCard" class="card" hidden aria-labelledby="transferCompleteTitle">
