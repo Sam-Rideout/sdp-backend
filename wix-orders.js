@@ -63,7 +63,7 @@ function displayOrder(o) {
   };
   const [status_label,message] = messages[o.order_status];
   return {...o, id:o.order_id, kind:'ORDER', status_label, message,
-    delivery_label:o.delivery_status === 'SENT' ? 'Song emailed' : o.delivery_status === 'FAILED' ? 'Email delivery issue' : 'No email delivery recorded',
+    delivery_label:o.delivery_status === 'SENT' ? 'Song emailed' : o.delivery_status === 'FAILED' ? 'Email delivery issue' : '',
     recovery_action:null};
 }
 function attachWixOrders(app, context) {
