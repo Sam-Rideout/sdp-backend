@@ -338,6 +338,7 @@ app.get('/health', (req, res) => {
 
 app.get('/', (req, res) => res.redirect(302, '/voice-capture'));
 app.get('/voice-recording-upload', (req,res)=>res.sendFile(path.join(ROOT,'public','voice-recording-upload.html')));
+app.use('/voice-capture-assets', express.static(path.join(ROOT, 'public', 'voice-capture-assets'), { index:false, dotfiles:'deny', redirect:false }));
 app.get('/voice-capture', (req, res) => res.sendFile(path.join(ROOT, 'public', 'voice-capture.html')));
 app.get('/consent', (req, res) => res.sendFile(path.join(ROOT, 'public', 'consent.html')));
 app.get('/pilot-consent', (req, res) => res.sendFile(path.join(ROOT, 'public', 'pilot-consent.html')));
