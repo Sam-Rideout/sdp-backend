@@ -28,12 +28,12 @@ def request(url: str, token: str, *, method: str = "GET", payload: dict | None =
         with urllib.request.urlopen(req, timeout=180) as response:
             return response.read(), {k.lower(): v for k, v in response.headers.items()}
     except urllib.error.HTTPError as exc:
-        message = exc.read().decode("utf-8", "replace")
-        try:
-            detail = json.loads(message).get("error", message)
-        except Exception:
-            detail = message
-        raise RuntimeError(f"Server returned HTTP {exc.code}: {detail}") from exc
+        # Reading/logging the HTML body can flood a console and carry BEL/ESC.
+        exc.close()
+        error = RuntimeError(f"Server returned HTTP {exc.code}; transfer will retry after checking its saved state.")
+        error.code = exc.code
+        raise error from None
+
 
 
 def digest(data: bytes) -> str:

@@ -86,6 +86,7 @@ def validate_local(envelope, destination):
 class PickupWorker:
     def __init__(self, url, destination, state_dir, token):
         self.url = url.rstrip('/'); self.destination = destination; self.state_dir = state_dir; self.token = token
+        self.retry_after = {}; self.retry_count = {}
         self.state_path = state_dir / 'Pickup_State.json'
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {'pending':[], 'completed':[], 'url':self.url, 'destination':str(destination)}
         if self.state.get('url') != self.url or self.state.get('destination') != str(destination):
@@ -118,8 +119,10 @@ class PickupWorker:
             'completed_at':__import__('datetime').datetime.now().astimezone().isoformat()})
         self.state['pending'] = [item for item in self.state['pending'] if item != sid]
         if sid not in self.state['completed']: self.state['completed'].append(sid)
+        self.retry_after.pop(sid,None);self.retry_count.pop(sid,None)
         self.save(); print(f'PICKUP COMPLETE: {sid} | {root}', flush=True)
     def process(self, sid):
+        if time.monotonic() < self.retry_after.get(sid,0): return
         if sid in self.state['completed']: return
         if sid not in self.state['pending']: self.state['pending'].append(sid); self.save()
         try:
@@ -132,7 +135,9 @@ class PickupWorker:
         except Exception as error:
             # If confirmation succeeded but its response or local report write was lost,
             # the next scan checks Render's terminal manifest and verified local files.
-            print(f'PICKUP RETRY REQUIRED: {sid} | {error}', flush=True)
+            attempt=self.retry_count.get(sid,0)+1;self.retry_count[sid]=attempt
+            self.retry_after[sid]=time.monotonic()+min(120,10*(2**min(attempt,4)))
+            print(f'PICKUP RETRY REQUIRED: {sid} | {type(error).__name__}', flush=True)
     def scan(self):
         for sid in list(self.state['pending']): self.process(sid)
         after = ''; cursors = set()
@@ -156,12 +161,15 @@ def main():
     parser.add_argument('--url', default='https://sdp-backend-6xt7.onrender.com')
     parser.add_argument('--destination', type=Path, default=Path('D:/Working/Project_X/PX_Engine/Voices'))
     parser.add_argument('--state-dir', type=Path)
+    parser.add_argument('--engine', type=Path, default=Path('D:/Working/Project_X/PX_Engine'))
     parser.add_argument('--once', action='store_true')
     args = parser.parse_args()
     destination = args.destination.expanduser().resolve()
     state_dir = args.state_dir or destination.parent / 'Data' / 'Voice_Transfer_Pickup'
     state_dir.mkdir(parents=True, exist_ok=True)
-    token = os.environ.get('VOICE_TRANSFER_TOKEN') or getpass.getpass('Render transfer token (once for this worker): ')
+    sys.path.insert(0, str(args.engine.resolve() / 'Services/PX_Admin'))
+    from px_transfer_credential import get_transfer_token
+    token = get_transfer_token()
     if len(token.encode('utf-8')) < 32: raise RuntimeError('Transfer token must be at least 32 characters.')
     with WorkerLock(state_dir / 'Pickup.lock'):
         worker = PickupWorker(args.url, destination, state_dir, token)
@@ -169,11 +177,11 @@ def main():
         while True:
             try: worker.scan()
             except Exception as error:
-                print(f'QUEUE CHECK FAILED: {error}', flush=True)
+                print(f'QUEUE CHECK FAILED: {type(error).__name__}', flush=True)
                 if args.once: return 1
             if args.once: return 1 if worker.state['pending'] else 0
             time.sleep(30)
 if __name__ == '__main__':
     try: sys.exit(main())
     except KeyboardInterrupt: print('\nAutomatic pickup stopped.')
-    except Exception as error: print(f'Pickup stopped: {error}', file=sys.stderr); sys.exit(1)
+    except Exception as error: print(f'Pickup stopped: {type(error).__name__}', file=sys.stderr); sys.exit(1)

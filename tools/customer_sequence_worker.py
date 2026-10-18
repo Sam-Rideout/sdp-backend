@@ -7,7 +7,15 @@ from contextlib import closing
 import auto_transfer_voice_sessions as pickup
 import transfer_voice_session as transfer
 
-# Owner resolution is imported after the Engine service path is established.
+# Runtime health is observational; Executive Office remains the only launcher.
+RUNTIME = None
+
+def note(event,error=None,code='NETWORK_RETRY',sid=''):
+    if RUNTIME is not None:RUNTIME.message(event,error,code,sid)
+    else:
+        from px_capture_runtime import safe_error
+        print(event+(': '+safe_error(error) if error else ''),flush=True)
+
 
 def digest(value): return hashlib.sha256(value).hexdigest()
 def canonical(value):return json.dumps(value,sort_keys=True,separators=(',',':')).encode()
@@ -99,45 +107,32 @@ class KeyRelay:
         return path
     def packet(self):
         if not self.request():return None
-        package=self.state.package();progress=self.state.progress();selection=self.state.selection()
-        common={'job_id':self.job_id,'model_id':self.record['model_id'],'enrollment_id':self.record['enrollment_id'],'request_id':self.state.request['request_id'],'epoch':int(progress.get('latest_epoch',0) or 0),'selected_shift':selection.get('selected_semitone_shift') if selection else None,'stage_code':public_training_stage(progress),'progress_updated_at':public_progress_time(progress)}
+        import px_automatic_voice_key as automatic
+        progress=self.state.progress();selection=self.state.selection()
+        common={'job_id':self.job_id,'model_id':self.record['model_id'],'enrollment_id':self.record['enrollment_id'],'request_id':self.state.request['request_id'],'epoch':int(progress.get('latest_epoch',0) or 0),'selected_shift':selection.get('selected_semitone_shift') if selection else None,'stage_code':public_training_stage(progress),'progress_updated_at':public_progress_time(progress),'worker_updated_at':datetime.now(timezone.utc).isoformat()}
+        if RUNTIME is not None:RUNTIME.progress(self.sid,progress,bool(selection))
         if selection:return {**common,'phase':'TRAINING','package_id':'','options':[]}
-        if package.get('status')!='READY':return {**common,'phase':'TRAINING','package_id':'','options':[]}
-        if package.get('model_id')!=self.record['model_id']:raise RuntimeError('Key Finder package model identity mismatch.')
-        session=self.state.session(package)
-        package_id=digest(canonical({'request_id':common['request_id'],'package':package,'session':session}))
-        options=[]
-        for shift in session['bracket']:
-            item=package['shift_cache'][str(shift)];audio=Path(item['mp3']).resolve()
-            if not any(audio.is_relative_to((self.root/p).resolve()) for p in ('Reports/PXM-019','Jobs/Training_Intake')) or any(part.lower() in ('g_backups','pxd-001') for part in audio.parts):raise RuntimeError('Preview path is outside the owned training workspaces.')
-            data=audio.read_bytes();sha=digest(data)
-            if sha not in self.uploaded:self.api.audio(self.sid,sha,data);self.uploaded.add(sha)
-            options.append({'shift':int(shift),'sha256':sha,'label':self.portal.label_for_shift(int(shift)),'key':str(item.get('resulting_key','')),'suggested':item.get('recommended') is True or int(shift)==package.get('recommended_vocal_shift')})
-        return {**common,'phase':'KEY_SELECTION','stage_code':'KEY_SELECTION','package_id':package_id,'round':session['round'],'options':options}
+        try:
+            selection=automatic.select_if_ready(self.root,self.request_path,self.record)
+        except (ValueError,OSError) as error:
+            if str(error)!=getattr(self,'last_auto_error',None):
+                note('Automatic pitch selection needs operator review',error,'KEY_SELECTION_REVIEW',self.sid)
+                self.last_auto_error=str(error)
+            # Display review status without falsely ending the still-running
+            # producer or exposing a choice to the customer.
+            return {**common,'phase':'TRAINING','stage_code':'REVIEW_REQUIRED','operator_attention':'KEY_SELECTION_REVIEW','package_id':'','options':[]}
+        if selection:common['selected_shift']=selection['selected_semitone_shift']
+        if RUNTIME is not None:RUNTIME.update(operator_code='')
+        return {**common,'phase':'TRAINING','package_id':'','options':[]}
     def tick(self):
-        packet=self.packet()
-        if packet is None:return
         remote=self.api.json(f'/api/transfer/sessions/{self.sid}/phone-flow')['state']
-        command=remote.get('command') if remote else None
-        if command and command.get('applied') is not True:
-            # A restart after a local write but before remote ACK reuses sealed command evidence.
-            receipt=self.request_path.parent/'Phone_Command_Receipt.json'
-            prior=load(receipt) if receipt.is_file() else {}
-            if prior.get('command_id')!=command['command_id']:
-                if command.get('package_id')!=packet.get('package_id') or command.get('shift') not in [o['shift'] for o in packet.get('options',[])]:raise RuntimeError('Phone command references stale Key Finder evidence.')
-                package=self.state.package();session=self.state.session(package)
-                action,updated=self.portal.next_selection_action(command['shift'],session,package)
-                # Record intent before writes. Ambiguous interrupted application requires review, not a guessed repeat.
-                pending=self.request_path.parent/'Phone_Command_Pending.json'
-                if pending.is_file():raise RuntimeError('A prior phone key application requires review.')
-                self.portal.write_json(pending,command)
-                self.portal.write_json(self.state.session_path,updated)
-                if action=='FINALIZE':self.state.finalize(command['shift'],updated,package)
-                self.portal.write_json(receipt,{'command_id':command['command_id'],'package_id':command['package_id'],'applied':True})
-                pending.unlink()
-            self.api.json(f'/api/transfer/sessions/{self.sid}/phone-command/ack','POST',{'job_id':self.job_id,'command_id':command['command_id']})
-            packet=self.packet()
-        self.api.json(f'/api/transfer/sessions/{self.sid}/phone-flow','PUT',packet)
+        # Never replace a human choice that was already submitted before cutover.
+        if remote and remote.get('command'):
+            if self.request():
+                self.api.json(f'/api/transfer/sessions/{self.sid}/phone-flow','PUT',{'job_id':self.job_id,'model_id':self.record['model_id'],'enrollment_id':self.record['enrollment_id'],'phase':'TRAINING','stage_code':'REVIEW_REQUIRED','package_id':remote.get('package_id',''),'options':[]})
+            return
+        packet=self.packet()
+        if packet is not None:self.api.json(f'/api/transfer/sessions/{self.sid}/phone-flow','PUT',packet)
 
 class Sequence:
     def __init__(self,root,api,state_dir):
@@ -153,6 +148,47 @@ class Sequence:
         return self.api.json(f'/api/transfer/sessions/{sid}/phone-flow','PUT',{'job_id':job_id,'model_id':record['model_id'],'enrollment_id':record['enrollment_id'],'phase':phase,'options':[]})
     def fail_before_launch(self,sid):
         return  # Do not invent a remote enrollment or terminal claim before source review.
+    def finish_existing(self,sid,local,state_path,proc,log_path):
+        from px_runtime_health import stop_requested
+        relay=KeyRelay(self.root,self.api,sid,local['record'],local['job_id']);failures=0
+        while proc.poll() is None:
+            if RUNTIME is not None:RUNTIME.update(state='DRAINING' if stop_requested(self.root) else 'RUNNING',session_id=sid,executive_process_id=proc.pid)
+            try:
+                relay.tick();failures=0
+                if RUNTIME is not None:RUNTIME.update(transport='OK')
+            except (urllib.error.URLError,TimeoutError,json.JSONDecodeError,OSError) as error:
+                failures+=1
+                if RUNTIME is not None:RUNTIME.update(transport='RETRY')
+                note('Capture status update pending; existing Executive work was left running',error,'NETWORK_RETRY',sid)
+            time.sleep(min(60,3*(2**min(failures,5))))
+        code=proc.wait()
+        if code!=0:raise RuntimeError('Executive Office training or certification did not succeed. See local run log.')
+        from px_capture_runtime import exact_ready
+        result=exact_ready(log_path,sid,local['record'])
+        if result is None:raise RuntimeError('Exact Executive certification result is missing; no training was restarted.')
+        local.update(phase='READY_PENDING_PHONE',result=result);pickup.atomic_json(state_path,local)
+        self.push(sid,local['record'],local['job_id'],'READY');local.update(phase='READY');pickup.atomic_json(state_path,local)
+        if RUNTIME is not None:RUNTIME.update(session_id='',stage='',epoch=0,executive_process_id=None,operator_code='',transport='OK')
+        print(f'CUSTOMER SEQUENCE READY: {sid}',flush=True)
+
+    def recover(self,sid,local,state_path):
+        from px_capture_runtime import ExistingExecutive,exact_ready
+        from px_runtime_health import process_token
+        import px_customer_training_executive as executive
+        record=local['record'];log_path=self.root/'Voices'/record['wix_member_id']/sid/'Phone_Executive_Console.log'
+        if record.get('session_id')!=sid or local.get('job_id')!='PXPHONE-'+sid.replace('-','') or executive.read_enrollment(self.db,record['enrollment_id'])!=record:
+            raise RuntimeError('Recovery enrollment identity differs; no work restarted.')
+        pid=local.get('executive_process_id');token=local.get('executive_process_token')
+        live=type(pid) is int and isinstance(token,str) and token and process_token(pid)==token
+        ready=log_path.is_file() and exact_ready(log_path,sid,record) is not None
+        if not live and not ready:
+            note('Capture recovery requires operator review; no matching live Executive or certified result',None,'RECOVERY_REVIEW',sid)
+            self.push(sid,record,local['job_id'],'REVIEW_REQUIRED')
+            local['phase']='REVIEW_REQUIRED';pickup.atomic_json(state_path,local);return
+        # Identity-bound observer only. This path cannot call Popen.
+        proc=ExistingExecutive(pid or 0,token)
+        self.finish_existing(sid,local,state_path,proc,log_path)
+
     def process(self,sid):
         if not pickup.UUID.fullmatch(sid):raise RuntimeError('Invalid phone session ID.')
         state_path=self.state_dir/(sid+'.json')
@@ -162,9 +198,10 @@ class Sequence:
                 self.push(sid,existing['record'],existing['job_id'],'READY')
                 existing['phase']='READY';pickup.atomic_json(state_path,existing);return
             if existing['phase'] in ('READY','FAILED','REVIEW_REQUIRED'):return
-            # Never re-launch a claimed training job after an ambiguous interruption.
-            self.push(sid,existing['record'],existing['job_id'],'REVIEW_REQUIRED')
-            existing['phase']='REVIEW_REQUIRED';pickup.atomic_json(state_path,existing);return
+            # Reattach only to the persisted process creation identity; never relaunch.
+            self.recover(sid,existing,state_path);return
+        from px_runtime_health import stop_requested
+        if stop_requested(self.root):return
         envelope=self.links.fetch_session(self.api.url,sid,self.api.token);verify_finish(envelope)
         self.registration.ensure_customer(self.db,envelope,sid)
         customer=self.owners.resolve(self.db,envelope,sid)
@@ -195,21 +232,10 @@ class Sequence:
             log_path=folder/'Phone_Executive_Console.log'
             with log_path.open('w',encoding='utf-8') as log:
                 proc=subprocess.Popen([sys.executable,str(self.root/'Modules/PXM-000/pxm000_executive_office.py'),'--customer-training-enrollment',record['enrollment_id'],'--publish-ready','--url',self.api.url],cwd=str(self.root),env=env,stdout=log,stderr=subprocess.STDOUT)
-                local.update(phase='RUNNING',executive_process_id=proc.pid);pickup.atomic_json(state_path,local)
-                relay=KeyRelay(self.root,self.api,sid,record,job_id)
-                while proc.poll() is None:
-                    try:relay.tick()
-                    except (urllib.error.URLError,TimeoutError,json.JSONDecodeError,OSError) as error:
-                        print('PHONE STATUS: connection/data update pending; processing continues.',flush=True)
-                    time.sleep(3)
-                code=proc.wait()
-            if code!=0:raise RuntimeError('Executive Office training or certification did not succeed. See local run log.')
-            # Read Executive's terminal result; never mark READY from a browser decision or epoch count.
-            results=[json.loads(line.split('=',1)[1]) for line in log_path.read_text(encoding='utf-8',errors='replace').splitlines() if line.startswith('CUSTOMER_TRAINING_RESULT=')]
-            if len(results)!=1 or results[0].get('status')!='READY' or results[0].get('session_id')!=sid or results[0].get('enrollment_id')!=record['enrollment_id'] or results[0].get('model_id')!=record['model_id']:raise RuntimeError('Exact Executive certification result is missing.')
-            local.update(phase='READY_PENDING_PHONE',result=results[0]);pickup.atomic_json(state_path,local)
-            self.push(sid,record,job_id,'READY');local.update(phase='READY');pickup.atomic_json(state_path,local)
-            print(f'PHONE SEQUENCE READY: {sid}',flush=True)
+                from px_runtime_health import process_token
+                token=process_token(proc.pid)
+                local.update(phase='RUNNING',executive_process_id=proc.pid,executive_process_token=token);pickup.atomic_json(state_path,local)
+                self.finish_existing(sid,local,state_path,proc,log_path)
         except BaseException:
             if local['phase']=='READY_PENDING_PHONE':
                 print('Certified READY result saved; phone notification will retry without retraining.',flush=True)
@@ -220,9 +246,14 @@ class Sequence:
             raise
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--url',default='https://sdp-backend-6xt7.onrender.com');parser.add_argument('--engine',type=Path,default=Path('D:/Working/Project_X/PX_Engine'));args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--url',default='https://sdp-backend-6xt7.onrender.com');parser.add_argument('--engine',type=Path,default=Path('D:/Working/Project_X/PX_Engine'));parser.add_argument('--supervised',action='store_true');args=parser.parse_args()
     root=args.engine.resolve();sys.path.insert(0,str(root/'Services/PX_Admin'))
     from px_transfer_credential import get_transfer_token
+    from px_runtime_health import stop_requested
+    from px_capture_runtime import CaptureRuntime,SilentConsole
+    if args.supervised:sys.stdout=sys.stderr=SilentConsole(root)
+    global RUNTIME
+    RUNTIME=CaptureRuntime(root,__file__,args.supervised)
     token=get_transfer_token()
     if len(token.encode())<32:raise RuntimeError('Transfer token must be at least 32 characters.')
     api=Api(args.url,token);state_dir=root/'Data/Phone_Sequence';state_dir.mkdir(parents=True,exist_ok=True)
@@ -230,19 +261,32 @@ def main():
     # The original pickup lock prevents two workers from racing the same transfer.
     with pickup.WorkerLock(pickup_dir/'Pickup.lock'):
         worker=pickup.PickupWorker(args.url,root/'Voices',pickup_dir,token);sequence=Sequence(root,api,state_dir)
-        print('PHONE SEQUENCE ACTIVE: automatic pickup, Executive training, phone Key Finder and certification. Ctrl+C stops this worker.',flush=True)
-        while True:
-            try:
-                worker.scan()
-                for row in api.json('/api/transfer/phone-jobs')['sessions']:
-                    sid=row['session_id']
-                    try:sequence.process(sid)
-                    except Exception as error:
-                        if not pickup.UUID.fullmatch(sid):raise
-                        print(f'PHONE TEST NEEDS REVIEW: {sid} | {error}',flush=True)
-                        sequence.fail_before_launch(sid)
-            except Exception as error:print(f'PHONE SEQUENCE CHECK: {error}',flush=True)
-            time.sleep(10)
+        print('CUSTOMER SEQUENCE ACTIVE: automatic pickup, Executive training, automatic key selection and certification. Ctrl+C stops this worker.',flush=True)
+        RUNTIME.start();failures=0
+        try:
+            while not stop_requested(root):
+                try:
+                    RUNTIME.update(stage='QUEUE_CHECK',session_id='')
+                    worker.scan()
+                    if worker.state.get('pending'):RUNTIME.message('Some capture transfers are pending verification',code='PICKUP_RETRY')
+                    for row in api.json('/api/transfer/phone-jobs')['sessions']:
+                        if stop_requested(root):break
+                        sid=row['session_id']
+                        try:sequence.process(sid)
+                        except Exception as error:
+                            if not pickup.UUID.fullmatch(sid):raise
+                            note('Capture job needs review',error,'JOB_REVIEW',sid)
+                            sequence.fail_before_launch(sid)
+                    failures=0;RUNTIME.update(transport='OK')
+                    if not worker.state.get('pending') and not RUNTIME.data.get('session_id'):RUNTIME.update(operator_code='')
+                except Exception as error:
+                    failures+=1;RUNTIME.update(transport='RETRY')
+                    note('Capture queue check will retry',error,'NETWORK_RETRY')
+                delay=min(120,10*(2**min(failures,4)))
+                for _ in range(delay):
+                    if stop_requested(root):break
+                    time.sleep(1)
+        finally:RUNTIME.close()
 if __name__=='__main__':
     try:main()
     except KeyboardInterrupt:print('\nPhone sequence worker stopped. Review any active training before restarting.')

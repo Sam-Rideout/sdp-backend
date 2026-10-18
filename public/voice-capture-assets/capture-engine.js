@@ -606,23 +606,30 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshCom
 let phoneRefreshBusy=false, phoneSnapshot=null, phoneOptionsRevision='', phoneChoiceBusy=false;
 const phoneLabels={QUEUED:'Recordings submitted. Waiting for verified transfer.',PREPARING:'Transfer verified. Preparing your training recording.',TRAINING:'Training your voice model.',KEY_SELECTION:'Preparing the best pitch for your voice profile.',CERTIFYING:'Checking your completed voice model.',READY:'Voice Profile Ready — certification passed.',FAILED:'Processing did not succeed. Project X will review this test.',REVIEW_REQUIRED:'This test needs Project X review. No new training will start automatically.'};
 const phonePreparationStages={QUEUED:'Waiting for preparation',CHECKING_RECORDINGS:'Checking and preparing your recordings',ANALYZING_VOICE:'Analyzing your voice',CALIBRATING:'Preparing your voice profile',TRAINING:'Training your voice profile',BUILDING_INDEX:'Building your voice profile index',PREPARING_PREVIEWS:'Preparing voice previews',VERIFYING:'Verifying your voice profile'};
-let phonePreparationClockOffset=0;
+let phonePreparationClockOffset=0,phoneRefreshFailed=false;
 function renderPhonePreparation(){
   const snapshot=phoneSnapshot,p=snapshot?.preparation;
   $('phoneChooseSong').hidden=snapshot?.phase!=='READY';
   if(!p){$('phonePreparationTime').textContent='';$('phonePreparationCheckBack').textContent='Waiting for a preparation update.';return;}
   const now=Date.now()+phonePreparationClockOffset,submitted=Date.parse(p.submitted_at),finished=Date.parse(p.finished_at),updated=Date.parse(p.progress_updated_at);
   const terminal=['READY','FAILED','REVIEW_REQUIRED'].includes(snapshot.phase);
+  const recentWorker=Date.parse(p.worker_updated_at||p.updated_at);
+  const queuedTooLong=snapshot.phase==='QUEUED'&&Number.isFinite(submitted)&&now-submitted>600000;
+  const updatesDelayed=!terminal&&(phoneRefreshFailed||(!Number.isFinite(recentWorker)||now-recentWorker>120000)&&snapshot.phase!=='QUEUED');
+  const blockedKey=!terminal&&snapshot.phase==='KEY_SELECTION';
+  const alert=p.alert?.message||(queuedTooLong?'Your recordings were submitted. Preparation is taking longer to start than expected. Please check back shortly.':updatesDelayed?'Recent processing updates are unavailable. Your submission is recorded; preparation may still be running. Please check back shortly.':blockedKey?'Preparation is waiting for Project X to complete the pitch settings. No new recording is needed.':'');
+  const stage=phonePreparationStages[p.stage_code]||phoneLabels[snapshot.phase]||'Preparing your voice profile.';
+  $('phoneTrainingStatus').textContent=alert?'Preparation delayed. Last reported stage: '+stage:stage;
   const fresh=Number.isFinite(updated)&&now-updated<=120000;
-  const end=Number.isFinite(finished)?finished:(fresh||snapshot.phase==='QUEUED'?now:updated);
+  const end=terminal?(Number.isFinite(finished)?finished:updated):now;
   if(Number.isFinite(submitted)&&Number.isFinite(end)){
     const seconds=Math.max(0,Math.floor((end-submitted)/1000)),hours=Math.floor(seconds/3600);
     const clock=(hours?hours+':':'')+String(Math.floor(seconds%3600/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
-    $('phonePreparationTime').textContent=(snapshot.phase==='READY'?'Time from submission to ready: ':fresh||terminal||snapshot.phase==='QUEUED'?'Time since submission: ':'Time since submission at last update: ')+clock;
+    $('phonePreparationTime').textContent=(snapshot.phase==='READY'?'Time from submission to ready: ':alert?'Time since submission (updates delayed): ':'Time since submission: ')+clock;
   }else $('phonePreparationTime').textContent='';
   if(snapshot.phase==='READY')$('phonePreparationCheckBack').textContent='Your voice profile is ready. You can now choose your birthday song.';
   else if(terminal)$('phonePreparationCheckBack').textContent='Additional recordings have not been requested. Contact Project X at sdp.projectx.contact@gmail.com.';
-  else if(snapshot.phase==='KEY_SELECTION')$('phonePreparationCheckBack').textContent='Project X is automatically preparing the pitch settings for your profile. No action is needed.';
+  else if(alert)$('phonePreparationCheckBack').textContent=alert;
   else $('phonePreparationCheckBack').textContent='Allow 1 to 2 hours for preparation once processing begins. This is an estimate; waiting time or technical issues can make it longer. Check back in about 10 minutes, or leave this page open for automatic updates.'+(!fresh&&snapshot.phase!=='QUEUED'?' A recent progress update is not available; preparation may still be running.':'');
 }
 setInterval(()=>{if(!$('phoneTrainingCard').hidden)renderPhonePreparation();},1000);
@@ -643,13 +650,13 @@ async function refreshPhoneTraining(){
   try{
     const snapshot=await api(`/api/sessions/${encodeURIComponent(sid)}/phone-flow`,{cache:'no-store'});
     if(activeSession?.session_id!==sid||snapshot.session_id!==sid)return;
-    phoneSnapshot=snapshot;
+    phoneSnapshot=snapshot;phoneRefreshFailed=false;
     const preparationChecked=Date.parse(snapshot.preparation?.checked_at);
     phonePreparationClockOffset=Number.isFinite(preparationChecked)?preparationChecked-Date.now():0;
     $('phoneTrainingStatus').textContent=phonePreparationStages[snapshot.preparation?.stage_code]||phoneLabels[snapshot.phase]||'Processing your voice profile.';
     $('phoneTrainingProgress').textContent=snapshot.preparation?.stage_code==='TRAINING'&&snapshot.epoch?`Training progress: ${snapshot.epoch} of 300 passes. Verification still follows training.`:'';
     renderPhonePreparation();
-    $('phoneTrainingHelp').textContent='Preparation continues while you are away. Return to this session or My Orders after signing in to the same account.';
+    $('phoneTrainingHelp').textContent=snapshot.phase==='READY'?'Your voice profile is ready. Return to My Orders or choose a song.':'You can leave and return to this session or My Orders after signing in to the same account.';
     const revision=JSON.stringify([sid,snapshot.phase,snapshot.package_id,snapshot.selection_pending,snapshot.options]);
     if(revision!==phoneOptionsRevision){
       phoneOptionsRevision=revision;const wrap=$('phoneKeyOptions');wrap.replaceChildren();
@@ -668,7 +675,7 @@ async function refreshPhoneTraining(){
       }
     }
     $('phoneTrainingEnd').hidden=!['READY','FAILED','REVIEW_REQUIRED'].includes(snapshot.phase);
-  }catch(error){if(activeSession?.session_id===sid)$('phoneTrainingHelp').textContent='We could not refresh progress. Processing may still be running; this page will retry automatically.';}
+  }catch(error){if(activeSession?.session_id===sid){phoneRefreshFailed=true;renderPhonePreparation();$('phoneTrainingHelp').textContent='We could not refresh progress. Your submission is recorded. This page will retry automatically; please do not submit again.';}}
   finally{phoneRefreshBusy=false;}
 }
 async function choosePhoneKey(sid,packageId,shift){
