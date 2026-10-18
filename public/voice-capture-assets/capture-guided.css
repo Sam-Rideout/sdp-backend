@@ -68,3 +68,17 @@ footer b{color:var(--red)}
 #guidedMain:focus{outline:none}
 a.primary.return-project-x{color:#191718;background:#f0e9e3;text-align:center}
 a.primary.return-project-x:hover{color:#191718;background:#fff}
+
+/* Consistent navigation buttons on the preparation screen. */
+.sdp-progress-actions > button,
+.sdp-progress-actions > a.return-project-x {
+    display:block;width:100%;min-height:48px;margin:0;
+    padding:14px 18px;border:1px solid #625d61;border-radius:6px;
+    background:#1b1b1e;color:#f0e9e3;
+    font:600 14px/1.5 Arial,Helvetica,sans-serif;
+    text-align:center;text-decoration:none;
+}
+.sdp-progress-actions > button:hover:not(:disabled),
+.sdp-progress-actions > a.return-project-x:hover {
+    background:#29272b;color:#f0e9e3;border-color:#aaa2a5;
+}
