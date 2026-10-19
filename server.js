@@ -796,7 +796,7 @@ const profileStatusBridge = require('./voice-profile-status').attachProfileStatu
 profileErasure.attach(app, transferAuth);
 require('./profile-deletion').attachProfileDeletion(app, {
   dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers,
-  transferAuth, profiles: profileStatusBridge.profiles
+  transferAuth, profiles: profileStatusBridge.profiles, readManifest, safeSessionId
 });
 
 require('./voice-phone-flow').attachPhoneFlow(app, {

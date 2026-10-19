@@ -1,0 +1,22 @@
+{
+    "schema_version":  "PX-VOICE-RETENTION-POLICY-1.0",
+    "enabled":  true,
+    "email_enabled":  false,
+    "business_timezone":  "America/Halifax",
+    "new_consent_days":  7,
+    "consent_rules":  [
+                          {
+                              "version":  "customer-voice-capture-2026-10-16-v1",
+                              "days":  3,
+                              "choice_text_sha256":  "a3d75cf26c5ef5d5d43dc7cb6d4fd7c7b44f9daf9377c41728f13c6449777e61",
+                              "status":  "LEGACY_ACCEPTED_WORDING"
+                          },
+                          {
+                              "version":  "customer-voice-capture-2026-10-19-v3",
+                              "days":  7,
+                              "choice_text_sha256":  "fcbba4b2d32d933c3980de42e4751b2d31e81b13fba9ea175f5055af8c742e74",
+                              "status":  "REVIEW_DRAFT_NOT_PUBLISHED"
+                          }
+                      ],
+    "cleanup_lead_seconds":  3600
+}

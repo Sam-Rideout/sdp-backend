@@ -56,7 +56,7 @@ function createProfileDeletionStore(dataDir){
   try{await fs.mkdir(lock);}catch(e){if(e.code==='EEXIST')fail('Your voice profiles are being updated. Please retry.');throw e;}
   try{return await fn();}finally{await fs.rmdir(lock);}
  }
- async function requestUnlocked(member,profile){
+ async function requestUnlocked(member,profile,authority=null){
   const r=profile;
   if(!r||r.owner_member_id!==member||!bounded(r.voice_profile_id)||!bounded(r.voice_model_id)
     ||!/^PXC-\d{6}$/.test(r.customer_id||'')||!bounded(r.session_id)||!bounded(r.certification_id)
@@ -69,6 +69,7 @@ function createProfileDeletionStore(dataDir){
    session_id:r.session_id,profile_origin:r.profile_origin||'CAPTURE_TRAINING',
    certification_id:r.certification_id,certification_sha256:r.certification_sha256,
    status:'REQUESTED',requested_at:new Date().toISOString(),account_deletion:false,physical_deletion_verified:false};
+  if(authority)entry.retention_authority=authority;
   await fs.mkdir(folder(member),{recursive:true,mode:0o700});
   // Atomic link publishes a complete durable record without overwriting a
   // competing request. A crash cannot expose a partially written JSON record.
@@ -104,7 +105,7 @@ function createProfileDeletionStore(dataDir){
    try{const f=await fs.open(tmp,'wx',0o600);try{await f.writeFile(JSON.stringify(next,null,2)+'\n');await f.sync();}finally{await f.close();}await fs.rename(tmp,file);}
    finally{await fs.unlink(tmp).catch(e=>{if(e.code!=='ENOENT')throw e;});}return next;});
  }
- const request=(member,profile)=>exclusive(member,()=>requestUnlocked(member,profile));
+ const request=(member,profile,authority=null)=>exclusive(member,()=>requestUnlocked(member,profile,authority));
  return {read,list,view,request,assertPublishable,pending,exclusive,setStatus};
 }
 function attachProfileDeletion(app,c){
@@ -124,6 +125,7 @@ function attachProfileDeletion(app,c){
     voice_profile_id:r.voice_profile_id,account_deleted:false,physical_deletion_verified:false});
  }catch(e){next(e);}});
  app.get('/api/transfer/profile-deletions',c.transferAuth,async(req,res,next)=>{try{res.json({requests:await store.pending()});}catch(e){next(e);}});
+ if(c.readManifest&&c.safeSessionId)require('./retention-deletion').attachRetentionDeletion(app,c,store,require('./retention-deletion-policy.json'));
  return store;
 }
 module.exports={createProfileDeletionStore,attachProfileDeletion};

@@ -10,7 +10,7 @@ function createProfileErasure({dataDir,profiles,store}){
  const jobFile=id=>{if(!/^[a-f0-9-]{36}$/.test(id||''))fail('Invalid erasure request ID.',400);return path.join(jobDir,id+'.json');};
  async function read(p){try{return JSON.parse(await fsp.readFile(p,'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}}
  async function save(p,b){await fsp.mkdir(path.dirname(p),{recursive:true,mode:0o700});const t=p+'.'+crypto.randomUUID()+'.tmp';try{const f=await fsp.open(t,'wx',0o600);try{await f.writeFile(JSON.stringify(b,null,2));await f.sync();}finally{await f.close();}await fsp.rename(t,p);}finally{await fsp.unlink(t).catch(e=>{if(e.code!=='ENOENT')throw e;});}}
- function middleware(req,res,next){if(req.path==='/health'||req.path.startsWith('/api/transfer/profile-erasure/'))return next();
+ function middleware(req,res,next){if(req.path==='/health'||req.path.startsWith('/api/transfer/profile-erasure/')||req.path==='/api/transfer/profile-deletions'||req.path.startsWith('/api/transfer/profile-deletions/'))return next();
   if(fs.existsSync(hold))return res.status(503).json({error:'Voice-data maintenance is in progress. Please try again later.'});
   active++;res.once('finish',()=>active--);next();}
  async function safe(relative){if(typeof relative!=='string'||relative.includes('\\')||relative.split('/').some(v=>!v||v==='.'||v==='..'))fail('Invalid managed audio path.');
@@ -75,9 +75,9 @@ function createProfileErasure({dataDir,profiles,store}){
   try{for(const f of job.plan.files){const full=await safe(f.relative_path);let bytes;try{bytes=await fsp.readFile(full);}catch(e){if(e.code!=='ENOENT')throw e;}
     if(bytes&&hash(bytes)!==f.sha256)fail('Audio changed immediately before unlink.');await fsp.unlink(full).catch(e=>{if(e.code!=='ENOENT')throw e;});
     try{await fsp.lstat(full);fail('Audio unlink could not be verified.');}catch(e){if(e.code!=='ENOENT')throw e;}
-    if(!job.removed.includes(f.relative_path))job.removed.push(f.relative_path);}
+    if(!job.removed.includes(f.relative_path)){job.removed.push(f.relative_path);(job.removal_events ||= []).push({relative_path:f.relative_path,expected_sha256:f.sha256,observed_at_utc:new Date().toISOString(),outcome:'ABSENCE_VERIFIED'});await save(jobFile(b.request_id),job);}}
    if((await preview(b)).files.length)fail('Unexpected profile audio remains.');
-   job.phase='REMOTE_PURGED';await save(jobFile(b.request_id),job);await fsp.unlink(hold);
+   job.phase='REMOTE_PURGED';job.purged_at=new Date().toISOString();await save(jobFile(b.request_id),job);await fsp.unlink(hold);
    return {status:'REMOTE_PURGED',request_id:b.request_id,profile_id:b.profile_id,removed_count:job.removed.length,customer_account_preserved:true,consent_records_preserved:true};
   }catch(e){job.phase='PARTIAL';await save(jobFile(b.request_id),job);throw e;}});}
  async function complete(b){return exclusive(async()=>{await identity(b);const job=await read(jobFile(b.request_id));
