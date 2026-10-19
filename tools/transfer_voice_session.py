@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import getpass
 import hashlib
 import json
@@ -101,6 +102,21 @@ def resolve_message_ffmpeg(destination: Path, override: str | None = None) -> st
     return executable
 
 
+def local_audit_manifest(manifest: dict) -> dict:
+    """Keep consent/audit identity while avoiding a second setup-detail copy."""
+    result = copy.deepcopy(manifest)
+    for key in ("recording_setup", "recording_setup_captured_at", "recording_setup_notice"):
+        result.pop(key, None)
+    for section in result.get("sections", {}).values():
+        for take in section.get("takes", []):
+            take.pop("recording_setup", None)
+            take.pop("recording_setup_captured_at", None)
+    for take in result.get("special_message", {}).get("takes", []):
+        take.pop("recording_setup", None)
+        take.pop("recording_setup_captured_at", None)
+    return result
+
+
 def read_message_pcm(path: Path) -> tuple[bytes, float]:
     with wave.open(str(path), "rb") as audio:
         if (audio.getnchannels(), audio.getsampwidth(), audio.getframerate(), audio.getcomptype()) != (1, 2, 48000, "NONE"):
@@ -172,7 +188,11 @@ def transfer(base_url: str, session_id: str, destination: Path, token: str, ffmp
     output_dir.mkdir(parents=True, exist_ok=True)
 
     local_manifest_path = output_dir / "Session_Manifest.json"
-    local_manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # Setup details are transferred in memory to the approved local intake
+    # workflow and then stored in its normalized Admin DB table. Do not leave a
+    # second detail copy in the preserved local consent/audit manifest.
+    local_manifest = local_audit_manifest(manifest)
+    local_manifest_path.write_text(json.dumps(local_manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     clip_entries: list[tuple[dict, Path]] = []
     verified = []
@@ -282,7 +302,7 @@ def transfer(base_url: str, session_id: str, destination: Path, token: str, ffmp
         "verified_clip_count": len(verified),
         "local_verification_report": report_path.name,
     }
-    local_manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    local_manifest_path.write_text(json.dumps(local_audit_manifest(manifest), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     report["render_audio_delete_requested"] = True
     report["render_receipt"] = receipt
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

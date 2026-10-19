@@ -109,3 +109,8 @@ footer > span:last-child::after {
     footer > span:last-child{gap:10px}
     footer > span:last-child::after{flex-basis:42px;width:42px;height:40px}
 }
+
+.recording-setup-panel{display:grid;gap:12px;margin:18px 0}.recording-setup-panel label{display:grid;gap:6px;font-weight:600}.recording-setup-panel select{width:100%;min-height:44px;padding:9px 12px;border:1px solid #747d86;border-radius:8px;background:#242a30;color:#f0e9e3;font:inherit}.recording-setup-details{margin:16px 0}.recording-setup-details summary{cursor:pointer;color:#f0e9e3;font-weight:700;padding:8px 0}.recording-setup-panel p{margin:0}
+.setup-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+
+.setup-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}

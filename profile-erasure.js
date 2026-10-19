@@ -20,6 +20,65 @@ function createProfileErasure({dataDir,profiles,store}){
   if(s.isDirectory()){for(const name of (await fsp.readdir(full)).sort())await collect(relative+'/'+name,out);}
   else if(audio.has(path.extname(relative).toLowerCase())){if(!s.isFile()||s.nlink!==1)fail('Shared/nonregular audio requires review.');
    if(out.length>=10000)fail('Profile audio inventory exceeds its limit.');const b=await fsp.readFile(full);out.push({relative_path:relative,bytes:b.length,sha256:hash(b)});}}
+ function containsSetup(record){return !!record&&typeof record==='object'&&(
+  Object.prototype.hasOwnProperty.call(record,'recording_setup')||
+  Object.prototype.hasOwnProperty.call(record,'recording_setup_summary')||
+  Object.prototype.hasOwnProperty.call(record,'recording_setup_evidence_sha256')||
+  Object.prototype.hasOwnProperty.call(record,'recording_setup_evidence'))}
+ function removeSetup(record){let count=0;
+  function drop(obj){if(!obj||typeof obj!=='object')return;
+   for(const key of ['recording_setup','recording_setup_summary','recording_setup_evidence_sha256','recording_setup_evidence','recording_setup_captured_at']){
+    if(Object.prototype.hasOwnProperty.call(obj,key)){delete obj[key];count++;}}
+   if(Array.isArray(obj)){for(const v of obj)drop(v);return;}
+   for(const [key,value] of Object.entries(obj))if(key!=='consent')drop(value);
+  }
+  drop(record);return count;}
+ async function setupMetadata(member,req){
+  const targets=[];
+  const manifestRel='sessions/'+req.session_id+'/manifest.json';
+  const manifestFile=await safe(manifestRel);
+  try{const info=await fsp.lstat(manifestFile);if(!info.isFile()||info.isSymbolicLink()||info.size>2_000_000)fail('Session consent manifest requires review.');
+   const bytes=await fsp.readFile(manifestFile),manifest=JSON.parse(bytes.toString('utf8'));
+   if(manifest.session_id!==req.session_id||manifest.owner_member_id!==member)fail('Session setup metadata owner differs.');
+   if(containsSetup(manifest))targets.push({relative_path:manifestRel,kind:'SESSION_MANIFEST',sha256:hash(bytes)});
+  }catch(e){if(e.code!=='ENOENT')throw e;}
+  const memberHash=hash(member),recordRel='voice-profile-records/'+memberHash+'/'+req.session_id+'.json';
+  const candidates=[recordRel,'voice-profile-status/'+memberHash+'.json'];
+  for(const relative of candidates){const file=await safe(relative);try{const info=await fsp.lstat(file);if(!info.isFile()||info.isSymbolicLink()||info.size>16384)fail('Profile metadata requires review.');
+    const bytes=await fsp.readFile(file),record=JSON.parse(bytes.toString('utf8'));
+    if(record.session_id===req.session_id&&record.voice_profile_id===req.voice_profile_id&&containsSetup(record))targets.push({relative_path:relative,kind:'PROFILE_RECORD',sha256:hash(bytes)});
+   }catch(e){if(e.code!=='ENOENT')throw e;}}
+  return targets;
+ }
+ async function redactSetupMetadata(job){
+  job.setup_metadata_redacted=job.setup_metadata_redacted||[];
+  for(const target of job.plan.setup_metadata||[]){const full=await safe(target.relative_path);let bytes;
+   try{bytes=await fsp.readFile(full);}catch(e){if(e.code==='ENOENT')fail('Setup metadata disappeared before redaction.');throw e;}
+   const prior=job.setup_metadata_redacted.find(x=>x.relative_path===target.relative_path&&x.kind===target.kind);
+   if(prior){
+    if(hash(bytes)!==prior.after_sha256)fail('Previously redacted setup metadata changed before retry.');
+    if(removeSetup(JSON.parse(bytes.toString('utf8')))!==0)fail('Setup metadata remains after prior redaction.');
+    continue;
+   }
+   job.setup_metadata_intents=job.setup_metadata_intents||[];
+   let intent=job.setup_metadata_intents.find(x=>x.relative_path===target.relative_path&&x.kind===target.kind);
+   if(intent&&hash(bytes)===intent.after_sha256){
+    if(intent.before_sha256!==target.sha256||removeSetup(JSON.parse(bytes.toString('utf8')))!==0)fail('Unverified setup redaction intent.');
+    job.setup_metadata_redacted.push({...intent});await save(jobFile(job.plan.request_id),job);continue;
+   }
+   if(hash(bytes)!==target.sha256)fail('Setup metadata changed after deletion preview.');
+   const record=JSON.parse(bytes.toString('utf8'));
+   const removed=removeSetup(record);
+   if(removed===0)fail('Previewed setup metadata was not found during redaction.');
+   const expectedAfter=hash(JSON.stringify(record,null,2));
+   if(intent&&(intent.before_sha256!==target.sha256||intent.after_sha256!==expectedAfter))fail('Setup redaction intent changed.');
+   if(!intent){intent={relative_path:target.relative_path,kind:target.kind,removed_fields:removed,before_sha256:target.sha256,after_sha256:expectedAfter};job.setup_metadata_intents.push(intent);await save(jobFile(job.plan.request_id),job);}
+   await save(full,record);const after=await fsp.readFile(full);
+   if(removeSetup(JSON.parse(after.toString('utf8')))!==0)fail('Setup metadata remains after redaction.');
+   job.setup_metadata_redacted.push({relative_path:target.relative_path,kind:target.kind,removed_fields:removed,before_sha256:target.sha256,after_sha256:hash(after)});
+   await save(jobFile(job.plan.request_id),job);
+  }
+ }
  async function identity(b){if(!b||typeof b.member_id!=='string'||!/^PXC-\d{6}$/.test(b.customer_id||''))fail('Invalid customer identity.',400);
   jobFile(b.request_id);const req=await store.read(b.member_id,b.profile_id);
   if(!req||req.request_id!==b.request_id||req.customer_id!==b.customer_id)fail('An exact customer-requested profile deletion is required.',404);
@@ -35,6 +94,7 @@ function createProfileErasure({dataDir,profiles,store}){
    if(state&&state.model_id===req.voice_model_id&&!retained.some(x=>x.record.voice_model_id===req.voice_model_id))roots.push('phone-training/'+req.session_id);
   }
   const files=[];for(const r of roots)await collect(r,files);
+  const setup_metadata=await setupMetadata(b.member_id,req);
   // An order-message file is keyed by selection. Require both the signed
   // selection's profile identity and the message's exact owner before cleanup.
   let selections=[];try{selections=await fsp.readdir(path.join(root,'song-selections'));}catch(e){if(e.code!=='ENOENT')throw e;}
@@ -50,7 +110,7 @@ function createProfileErasure({dataDir,profiles,store}){
     voice_model_id:req.voice_model_id,session_id:req.session_id,certification_sha256:req.certification_sha256,
     retained_profile_ids:retained.map(x=>x.record.voice_profile_id).sort(),
     retained_models:retained.map(x=>({profile_id:x.record.voice_profile_id,voice_model_id:x.record.voice_model_id,session_id:x.record.session_id,profile_origin:x.record.profile_origin||'CAPTURE_TRAINING',model_sha256:x.record.model_sha256,index_sha256:x.record.index_sha256})),
-    roots,files,consent_records_preserved:true,customer_account_preserved:true};
+    roots,files,setup_metadata,consent_records_preserved:true,customer_account_preserved:true};
   return {...p,plan_sha256:hash(JSON.stringify(p))};}
  async function exclusive(fn){if(busy)fail('Profile erasure is already active.');busy=true;try{return await fn();}finally{busy=false;}}
  async function freeze(b){return exclusive(async()=>{await identity(b);const old=await read(hold);
@@ -71,12 +131,17 @@ function createProfileErasure({dataDir,profiles,store}){
   if(job.phase==='REMOTE_PURGED')return {status:'REMOTE_PURGED',request_id:b.request_id,profile_id:b.profile_id,removed_count:job.removed.length,customer_account_preserved:true};
   const holding=await read(hold);if(!holding||holding.request_id!==b.request_id||active!==0)fail('Quiescent profile maintenance is required.');
   for(const f of job.plan.files){const full=await safe(f.relative_path);try{const s=await fsp.lstat(full);if(!s.isFile()||s.nlink!==1)fail('Remote audio became shared/nonregular.');const bytes=await fsp.readFile(full);if(bytes.length!==f.bytes||hash(bytes)!==f.sha256)fail('Remote profile audio changed.');}catch(e){if(e.code==='ENOENT'&&['DELETING','PARTIAL'].includes(job.phase))continue;throw e;}}
+  for(const m of job.plan.setup_metadata||[]){const full=await safe(m.relative_path);const bytes=await fsp.readFile(full);
+   const prior=(job.setup_metadata_redacted||[]).find(x=>x.relative_path===m.relative_path&&x.kind===m.kind);
+   if(prior){if(hash(bytes)!==prior.after_sha256||removeSetup(JSON.parse(bytes.toString('utf8')))!==0)fail('Previously redacted setup metadata changed before retry.');}
+   else if(hash(bytes)!==m.sha256){const intent=(job.setup_metadata_intents||[]).find(x=>x.relative_path===m.relative_path&&x.kind===m.kind);if(!intent||intent.before_sha256!==m.sha256||hash(bytes)!==intent.after_sha256||removeSetup(JSON.parse(bytes.toString('utf8')))!==0)fail('Profile setup metadata changed after deletion preview.');}}
   job.phase='DELETING';await save(jobFile(b.request_id),job);
   try{for(const f of job.plan.files){const full=await safe(f.relative_path);let bytes;try{bytes=await fsp.readFile(full);}catch(e){if(e.code!=='ENOENT')throw e;}
     if(bytes&&hash(bytes)!==f.sha256)fail('Audio changed immediately before unlink.');await fsp.unlink(full).catch(e=>{if(e.code!=='ENOENT')throw e;});
     try{await fsp.lstat(full);fail('Audio unlink could not be verified.');}catch(e){if(e.code!=='ENOENT')throw e;}
     if(!job.removed.includes(f.relative_path)){job.removed.push(f.relative_path);(job.removal_events ||= []).push({relative_path:f.relative_path,expected_sha256:f.sha256,observed_at_utc:new Date().toISOString(),outcome:'ABSENCE_VERIFIED'});await save(jobFile(b.request_id),job);}}
    if((await preview(b)).files.length)fail('Unexpected profile audio remains.');
+   await redactSetupMetadata(job);
    job.phase='REMOTE_PURGED';job.purged_at=new Date().toISOString();await save(jobFile(b.request_id),job);await fsp.unlink(hold);
    return {status:'REMOTE_PURGED',request_id:b.request_id,profile_id:b.profile_id,removed_count:job.removed.length,customer_account_preserved:true,consent_records_preserved:true};
   }catch(e){job.phase='PARTIAL';await save(jobFile(b.request_id),job);throw e;}});}

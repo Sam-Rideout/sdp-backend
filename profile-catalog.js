@@ -89,9 +89,8 @@ function createProfileCatalog({dataDir, ownedSessions, validateRecord}) {
     return rows.map(({record:r, manifest:m, selectable}, i) => ({
       voice_profile_id: r.voice_profile_id || '',
       status:r.status, selectable,
-      label:names[i]?.label || 'Recording · Date unknown',
-      technical_title:typeof r.display_name === 'string' && r.display_name.trim().length > 0 && r.display_name.length <= 200 ? r.display_name :
-        (r.voice_profile_id || 'Recording profile'),
+      label:names[i]?.label || 'Setup unknown · Date unknown',
+      technical_title:(()=>{const base=typeof r.display_name==='string'&&r.display_name.trim().length>0&&r.display_name.length<=120?r.display_name:'Voice profile';const d=r.recording_setup_summary;const detail=d&&d.status!=='UNKNOWN'?` | Recording setup: ${d.details}`:' | Recording setup unknown';return (base+detail).slice(0,200);})(),
       created_at:r.created_at || m.created_at, updated_at:r.updated_at,
       deletion_requested:r.deletion_requested === true,
       deletion_status:r.deletion_status || '',

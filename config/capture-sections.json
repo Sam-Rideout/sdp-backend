@@ -1,12 +1,12 @@
 {
   "schema_version": "PX-TIER1-CAPTURE-PROMPTS-1.0.0",
   "prompts_approved": true,
-  "consent_version": "customer-voice-capture-2026-10-16-v1",
-  "consent_notice": "Project X uses your own voice recordings to train an AI singing voice model, certify your voice profile, and create songs you request. You must be 18 or older and signed in to your own account. Choose one required retention option below. Development use is optional and does not extend retention. After local transfer is verified, audio is deleted from Render's active storage. Snapshot and backup copies may remain for an unknown period; active-storage deletion does not confirm removal of all copies. Read the full consent document before starting. Short Key Finder voice previews may be temporarily hosted on Render and are deleted from active storage after the final key choice or when the session ends; snapshot copies may remain. Pressing Finish and Start Training approves the saved Sections 1–8 takes for training. Section 9 is excluded from training.",
+  "consent_version": "customer-voice-capture-2026-10-19-v3",
+  "consent_notice": "Project X uses your own voice recordings to train an AI singing voice model, certify your voice profile, and create songs you request. You must be 18 or older and signed in to your own account. Choose one required retention option below. Development use is optional and does not extend retention. If you choose deletion after this order, active voice data is due for deletion within 7 calendar days after the order is complete. After local transfer is verified, transferred audio is deleted from Render's active storage. Snapshot and backup copies may remain for an unknown period; the seven-day active-storage deadline does not confirm removal of those copies. We save your selected recording device, microphone and listening setup with each take, plus available browser microphone information such as the microphone name, sample rate and audio processing settings. We use this linked information for quality review and support under your chosen retention option; persistent device IDs are not collected. Read the full consent document before starting. Project X automatically selects suitable pitch settings for your voice. Submitting your recordings for training approves your saved Sections 1–8 takes; the optional personal message in Section 9 is excluded from training.",
   "consent_choices": {
-    "delete_after_order": "I agree to record my own voice and use it for AI voice-model training, certification, and my current song order. I choose deletion of my recordings and voice profile from active storage within 3 calendar days after this order is complete. This deadline does not apply to snapshots or backups; their permanent deletion timing is not confirmed.",
-    "future_purchases": "I agree to record my own voice and use it for AI voice-model training, certification, and my current song order. I choose to keep my recordings and voice profile for my future song purchases until I withdraw permission or request deletion.",
-    "development_use": "Optional: I allow my recordings and voice profile to be used for internal product development and testing while retained under my chosen option. This does not extend retention or authorize public release, and it does not affect my current song order."
+    "delete_after_order": "I agree to record my own voice and use it for AI voice-model training, certification, and my current song order. I choose deletion of my recordings, derived working audio, voice profile, and linked recording-setup information from active storage within 7 calendar days after this order is complete. This deadline does not apply to snapshots or backups; their permanent deletion timing is not confirmed.",
+    "future_purchases": "I agree to record my own voice and use it for AI voice-model training, certification, and my current song order. I choose to keep my recordings, voice profile, and linked recording-setup information for future song purchases until I withdraw permission or request deletion.",
+    "development_use": "Optional: I allow my recordings, voice profile, and recording-setup information to be used for internal product development and testing while retained under my chosen option. This does not extend retention or authorize public release, and it does not affect my current order."
   },
   "consent_document_path": "/consent",
   "sections": [
@@ -57,5 +57,6 @@
   },
   "customer_capture_scope": "REGISTERED_CUSTOMERS",
   "customer_test_account_email": "sam.rideout.me@gmail.com",
-  "customer_intake_release_approved": true
+  "customer_intake_release_approved": true,
+  "recording_setup_enabled": true
 }

@@ -9,6 +9,7 @@ const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const hex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const text = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
 const { publicPreparation } = require('./voice-preparation');
+const recordingSetup = require('./recording-setup');
 const STATES = new Set(['PROCESSING', 'READY', 'FAILED', 'REVOKED']);
 
 function attachProfileStatus(app, context) {
@@ -42,7 +43,9 @@ function attachProfileStatus(app, context) {
     if (record.status === 'READY' && (!text(record.voice_profile_id)
       || !text(record.voice_model_id) || !text(record.customer_id)
       || !hex(record.model_sha256) || !hex(record.index_sha256)
-      || !text(record.certification_id) || !hex(record.certification_sha256))) {
+      || !text(record.certification_id) || !hex(record.certification_sha256)
+      || (record.recording_setup_summary!==null && record.recording_setup_summary!==undefined
+          && (()=>{try{return recordingSetup.summary(record.recording_setup_summary,record.recording_setup_evidence_sha256)===null}catch{return true}})()))) {
       throw new Error('READY requires the certified model and index identities.');
     }
   }
@@ -147,6 +150,8 @@ function attachProfileStatus(app, context) {
           model_sha256: body.model_sha256, index_sha256: body.index_sha256,
           certification_id: body.certification_id,
           certification_sha256: body.certification_sha256,
+          recording_setup_summary: body.recording_setup_summary === undefined ? null : recordingSetup.summary(body.recording_setup_summary,body.recording_setup_evidence_sha256),
+          recording_setup_evidence_sha256: body.recording_setup_evidence_sha256 || null,
           updated_at: new Date().toISOString()
         };
         try { validateRecord(record, manifest); }

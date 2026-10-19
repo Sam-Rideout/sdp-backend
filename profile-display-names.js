@@ -86,7 +86,9 @@ function createDisplayNames(dataDir) {
       return rows.map(({record})=>{
         if(!record.voice_profile_id)return null;
         const item=ledger.profiles[hash(record.voice_profile_id)];
-        return {label:`${item.source} · ${item.date} · ${String(item.sequence).padStart(2,'0')}`,sequence:item.sequence};
+        const setup=record.recording_setup_summary;
+        const prefix=setup&&['KNOWN','MIXED','PARTIAL'].includes(setup.status)?setup.compact_label:'Setup unknown';
+        return {label:`${prefix} · ${item.date} · ${String(item.sequence).padStart(2,'0')}`,sequence:item.sequence};
       });
     } finally {await fs.rmdir(lock);}
   }

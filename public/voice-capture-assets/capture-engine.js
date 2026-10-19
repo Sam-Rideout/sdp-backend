@@ -4,7 +4,7 @@ const $ = id => document.getElementById(id);
 const progressReturnMode=new URLSearchParams(location.search).get('view')==='progress'||new URLSearchParams(location.hash.slice(1)).get('view')==='progress';
 let config = null, activeSession = null, mediaRecorder = null, stream = null;
 let chunks = [], takeBlob = null, takeUrl = null, startedAt = 0, takeDuration = 0, tick = null, busy = false;
-let audioContext = null, analyser = null, meterSamples = null, meterFrame = null, recordingInterrupted = false, activeSectionId = 1;
+let audioContext = null, analyser = null, meterSamples = null, meterFrame = null, recordingInterrupted = false, activeSectionId = 1, takeRecordingSetup = null;
 let savedTakeUrl = null, savedPlaybackRequest = 0;
 
 function setStatus(message, target='globalStatus') { $(target).textContent = message || ''; if(typeof guidedStatus==='function')guidedStatus(message); }
@@ -201,7 +201,7 @@ function retentionChoice() {
 }
 
 function customerConsentAccepted() {
-  return Boolean(retentionChoice()) && $('ageOwnVoice').checked;
+  return Boolean(retentionChoice()) && $('ageOwnVoice').checked && (config?.recording_setup_enabled!==true||typeof setupComplete!=='function'||setupComplete());
 }
 
 function syncConsentControls(changedId='') {
@@ -213,7 +213,7 @@ function syncConsentControls(changedId='') {
 
 async function selectSession(id) {
   if(busy||takeBlob){setStatus('Wait for saving to finish, or retry or discard the unsaved take before changing sessions.','sectionStatus');return;}
-  const data=await api(`/api/sessions/${encodeURIComponent(id)}`); if(data?.session?.session_id!==id)throw new Error('The recording-session response did not match. Please reopen your session.'); activeSession=data.session;
+  const data=await api(`/api/sessions/${encodeURIComponent(id)}`); if(data?.session?.session_id!==id)throw new Error('The recording-session response did not match. Please reopen your session.'); activeSession=data.session;if(window.PXRestoreRecordingSetup)window.PXRestoreRecordingSetup(activeSession.recording_setup||null);
   $('transferCompleteCard').hidden=true;
   if(activeSession.program==='CUSTOMER'&&activeSession.phone_training?.accepted===true){showPhoneTraining(activeSession);return;}
   $('phoneTrainingCard').hidden=true;
@@ -349,12 +349,13 @@ async function initialize() {
     $('pilotUnderstood').addEventListener('change',()=>syncConsentControls('pilotUnderstood'));
     syncConsentControls();
     $('create').addEventListener('click',async()=>{
-      if(busy||takeBlob||guidedCreating||!guidedMicPassed||!config.capture_enabled||(pilotMode?!$('pilotUnderstood').checked:!customerConsentAccepted()))return; guidedCreating=true;
+      if(busy||takeBlob||guidedCreating||!guidedMicPassed||!config.capture_enabled||(pilotMode?!$('pilotUnderstood').checked:(!customerConsentAccepted()||(config.recording_setup_enabled===true&&!setupComplete()))))return; guidedCreating=true;
       $('create').disabled=true; setStatus('Creating your session…','account');
       const selectedRetention=retentionChoice();
       const consentBody=pilotMode
         ? {pilot_consent:{accepted:true,version:config.pilot_consent_version,understood:$('pilotUnderstood').checked}}
         : {consent:{accepted:true,version:config.consent_version,retention_choice:selectedRetention,development_use:$('developmentUse').checked,adult_confirmed:$('ageOwnVoice').checked,own_voice_confirmed:$('ageOwnVoice').checked}};
+      if(!pilotMode&&config.recording_setup_enabled===true&&config.training_source!=='SUPPLIED_RECORDING')consentBody.recording_setup=window.PXGetSessionRecordingSetup?.();
       try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify(consentBody)});await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
       catch(error){setStatus(error.message);}finally{guidedCreating=false;syncConsentControls();guidedUpdate();}
     });
@@ -387,6 +388,7 @@ async function startRecording() {
     if(!isSecureContext)throw new Error('Microphone recording requires HTTPS.');
     if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error('Recording is not supported in this browser.');
     stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:{ideal:1},echoCancellation:{ideal:false},noiseSuppression:{ideal:false},autoGainControl:{ideal:false}},video:false});
+    takeRecordingSetup=activeSession.recording_setup_required===true&&window.PXBuildRecordingSetup?window.PXBuildRecordingSetup(stream):null;
     const types=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'];
     const mimeType=types.find(type=>MediaRecorder.isTypeSupported(type));
     mediaRecorder=mimeType?new MediaRecorder(stream,{mimeType}):new MediaRecorder(stream);
@@ -439,11 +441,11 @@ async function saveTake() {
   if(!takeBlob||busy)return;
   busy=true;updateFinishStandard();$('sectionSelect').disabled=true;$('record').disabled=true;$('saveTake').disabled=true;$('discardTake').disabled=true;setRecordingIndicator('ready','Saving…','Your recording has stopped. Keep this page open while the take saves.');setStatus('Saving your take…','sectionStatus');
   try{
-    const form=new FormData();form.append('section',String(activeSectionId));form.append('duration_seconds',String(takeDuration));
+    const form=new FormData();form.append('section',String(activeSectionId));form.append('duration_seconds',String(takeDuration));if(takeRecordingSetup)form.append('recording_setup',JSON.stringify(takeRecordingSetup));
     const ext=takeBlob.type.includes('mp4')?'m4a':takeBlob.type.includes('ogg')?'ogg':takeBlob.type.includes('wav')?'wav':'webm';
     form.append('audio',takeBlob,`recording.${ext}`);
     const data=await api(`/api/sessions/${encodeURIComponent(activeSession.session_id)}/clips`,{method:'POST',body:form});
-    activeSession=data.session;takeBlob=null;if(takeUrl){URL.revokeObjectURL(takeUrl);takeUrl=null;} $('playback').removeAttribute('src');$('playback').load();$('review').hidden=true;
+    activeSession=data.session;takeBlob=null;takeRecordingSetup=null;if(takeUrl){URL.revokeObjectURL(takeUrl);takeUrl=null;} $('playback').removeAttribute('src');$('playback').load();$('review').hidden=true;
     setRecordingIndicator('idle','Saved','Your take is saved. Choose a section and press “Record a take” when ready.');$('timer').textContent='00:00';
     $('meterCaption').textContent='The microphone level display activates during recording; moving bars show sound reaching the microphone.';
     showSection(activeSectionId);renderSections(activeSectionId);setStatus(`Saved as take ${data.clip.take}. You can record another take or choose another section.`, 'sectionStatus');

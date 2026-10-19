@@ -1,5 +1,6 @@
 'use strict';
 let guidedView='loading',guidedMicPassed=false,guidedMicBusy=false,guidedCreating=false;
+let guidedInitialBrowser=null,guidedSetupReady=false,guidedTestSetupSignature="";
 let guidedTestRecorder=null,guidedTestStream=null,guidedTestUrl=null,guidedTestTimer=null,guidedTestGeneration=0;
 const guidedCards=['guidedIntro','startCard','guidedMic','captureCard','guidedReview','phoneTrainingCard','progressReturnCard','transferCompleteCard'];
 function guidedStatus(message){$('guidedNotice').textContent=message||'';}
@@ -15,9 +16,34 @@ function guidedJourney(){
  const position=['guidedIntro','startCard','guidedMic','loading'].includes(guidedView)?0:guidedView==='captureCard'?1:2;
  $('guidedJourney').innerHTML=['Get ready','Record your voice','Review & finish'].map((s,i)=>`<div class="nav-step ${i===position?'active':i<position?'done':''}" ${i===position?'aria-current="step"':''}><span class="num">${i<position?'✓':'0'+(i+1)}</span><span>${s}<small>${['Consent & microphone setup','One section at a time','Your recordings together'][i]}</small></span></div>`).join('');
 }
+const setupComplete=()=>Boolean($('setupDevice').value&&$('setupMic').value&&$('setupListening').value);
+const setupSignature=()=>[$('setupDevice').value,$('setupMic').value,$('setupListening').value].join('|');
+function setupReported(prefix){return {device_type:$(prefix+'Device').value,microphone_type:$(prefix+'Mic').value,listening_setup:$(prefix+'Listening').value};}
+function browserAudioMetadata(stream){
+ const track=stream?.getAudioTracks?.()[0];const settings=track?.getSettings?.()||{};
+ const label=typeof track?.label==='string'?track.label.trim().slice(0,120):'';
+ const bounded=(v,min,max)=>Number.isInteger(v)&&v>=min&&v<=max?v:null;
+ return {microphone_label:label||null,sample_rate:bounded(settings.sampleRate,8000,192000),channel_count:bounded(settings.channelCount,1,8),echo_cancellation:typeof settings.echoCancellation==='boolean'?settings.echoCancellation:null,noise_suppression:typeof settings.noiseSuppression==='boolean'?settings.noiseSuppression:null,auto_gain_control:typeof settings.autoGainControl==='boolean'?settings.autoGainControl:null};
+}
+window.PXGetSessionRecordingSetup=()=>({schema_version:'PX-RECORDING-SETUP-1.0',reported:setupReported('setup'),browser:guidedInitialBrowser||{microphone_label:null,sample_rate:null,channel_count:null,echo_cancellation:null,noise_suppression:null,auto_gain_control:null}});
+window.PXBuildRecordingSetup=stream=>({schema_version:'PX-RECORDING-SETUP-1.0',reported:setupReported('takeSetup'),browser:browserAudioMetadata(stream)});
+window.PXRestoreRecordingSetup=value=>{
+ const r=value?.reported,b=value?.browser;if(r&&b){for(const [id,key] of [['setupDevice','device_type'],['setupMic','microphone_type'],['setupListening','listening_setup']])$(id).value=r[key]||'';guidedInitialBrowser=b;}
+ for(const [from,to] of [['setupDevice','takeSetupDevice'],['setupMic','takeSetupMic'],['setupListening','takeSetupListening']])$(to).value=$(from).value;
+};
+function guidedSetupSelectors(){
+ if(guidedSetupReady)return;guidedSetupReady=true;
+ for(const [from,to] of [['setupDevice','takeSetupDevice'],['setupMic','takeSetupMic'],['setupListening','takeSetupListening']]){
+  const target=$(to);if(!target.options.length)target.innerHTML=$(from).innerHTML;
+  if(!target.value)target.value=$(from).value;
+  $(from).addEventListener('change',()=>{if(guidedTestSetupSignature&&guidedTestSetupSignature!==setupSignature())guidedTestClear();if(!activeSession||activeSession.status!=='RECORDING')$(to).value=$(from).value;guidedConsentUpdate();});
+  target.addEventListener('change',()=>{if(target.value)guidedConsentUpdate();});
+ }
+}
 function guidedConsentUpdate(){
- if(!config)return;
- const accepted=config.capture_mode==='LIMITED_HELPER_PILOT'?$('pilotUnderstood').checked:customerConsentAccepted();
+ if(!config)return;guidedSetupSelectors();
+ document.querySelectorAll('.recording-setup-panel,.recording-setup-details').forEach(el=>{el.hidden=config.recording_setup_enabled!==true;});
+ const accepted=config.capture_mode==='LIMITED_HELPER_PILOT'?$('pilotUnderstood').checked:(customerConsentAccepted()&&(config.recording_setup_enabled!==true||setupComplete()));
  $('guidedConsentNext').disabled=!config.capture_enabled||!accepted||guidedLocked();
  $('create').disabled=!config.capture_enabled||!accepted||!guidedMicPassed||guidedLocked();
 }
@@ -32,7 +58,7 @@ function guidedSelected(){
 }
 function guidedProgress(id='phoneTrainingCard'){guidedShow(id,true);}
 function guidedResetIntro(){
- guidedTestClear();for(const id of ['ageOwnVoice','deleteAfterOrder','futurePurchases','developmentUse','pilotUnderstood'])$(id).checked=false;
+ guidedTestClear();for(const id of ['ageOwnVoice','deleteAfterOrder','futurePurchases','developmentUse','pilotUnderstood'])$(id).checked=false;guidedInitialBrowser=null;for(const id of ['setupDevice','setupMic','setupListening','takeSetupDevice','takeSetupMic','takeSetupListening'])$(id).value='';
  $('guidedMessageDraft').value='';history.replaceState(null,'',location.pathname);guidedShow('guidedIntro',true);guidedSessionList();syncConsentControls();
 }
 function guidedLesson(section){
@@ -87,7 +113,7 @@ function guidedTestRelease(){
  if(guidedTestStream)guidedTestStream.getTracks().forEach(t=>t.stop());guidedTestStream=null;
 }
 function guidedTestClear(){
- guidedTestGeneration++;guidedTestRelease();guidedMicPassed=false;
+ guidedTestGeneration++;guidedTestRelease();guidedMicPassed=false;guidedTestSetupSignature='';guidedInitialBrowser=null;
  const p=$('guidedTestPlayer');p.pause();p.removeAttribute('src');p.load();p.hidden=true;
  if(guidedTestUrl)URL.revokeObjectURL(guidedTestUrl);guidedTestUrl=null;
  $('guidedTestRetry').hidden=true;$('guidedTestRecord').disabled=false;$('guidedTestStop').disabled=true;
@@ -100,6 +126,7 @@ async function guidedRecordTest(){
  try{
   if(self!==top||!isSecureContext||!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error('Open this recorder directly in a supported HTTPS browser.');
   const testStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:{ideal:1},echoCancellation:{ideal:false},noiseSuppression:{ideal:false},autoGainControl:{ideal:false}},video:false});
+  guidedInitialBrowser=browserAudioMetadata(testStream);guidedTestSetupSignature=setupSignature();
   if(generation!==guidedTestGeneration){testStream.getTracks().forEach(t=>t.stop());return;}
   guidedTestStream=testStream;
   const mime=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t));
@@ -134,5 +161,5 @@ $('guidedSubmit').addEventListener('click',finishSession);
 document.querySelectorAll('audio').forEach(player=>player.addEventListener('play',()=>{if(busy||guidedMicBusy){player.pause();return;}document.querySelectorAll('audio').forEach(other=>{if(other!==player)other.pause();});}));
 window.addEventListener('pagehide',()=>{guidedTestGeneration++;guidedTestRelease();if(guidedTestUrl)URL.revokeObjectURL(guidedTestUrl);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&guidedMicBusy)guidedStopTest();});
-guidedJourney();
+guidedSetupSelectors();guidedJourney();
 initialize().then(()=>{if(!progressReturnMode&&config&&$('account').textContent==='Signed in to Project X.'&&!activeSession)guidedShow('guidedIntro',true);guidedSessionList();guidedConsentUpdate();});

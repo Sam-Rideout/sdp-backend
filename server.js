@@ -6,6 +6,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const express = require('express');
 const multer = require('multer');
+const recordingSetup = require('./recording-setup');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -328,7 +329,7 @@ async function directoryBytes(dir) {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_CLIP_BYTES, files: 1, fields: 2 },
+  limits: { fileSize: MAX_CLIP_BYTES, files: 1, fields: 4 },
   fileFilter: (req, file, callback) => callback(null, Boolean(clipExtension(file.mimetype)))
 });
 
@@ -351,7 +352,8 @@ app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
     const choicesReady = ['delete_after_order', 'future_purchases', 'development_use']
       .every(key => typeof config.consent_choices?.[key] === 'string' && config.consent_choices[key].trim());
     const configuredConsentVersion = process.env.VOICE_CONSENT_VERSION || config.consent_version;
-    const consentApproved = process.env.VOICE_CUSTOMER_CAPTURE_APPROVED === 'true' &&
+    const consentApproved = configuredConsentVersion === config.consent_version &&
+      process.env.VOICE_CUSTOMER_CAPTURE_APPROVED === 'true' &&
       process.env.VOICE_CONSENT_APPROVED === 'true' &&
       !String(config.consent_notice).includes('DRAFT') &&
       !String(configuredConsentVersion).toLowerCase().startsWith('draft') &&
@@ -385,6 +387,7 @@ app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
       customer_test_access: customerTestAccess(req, config),
       customer_capture_access: customerTestAccess(req, config) || require('./customer-capture-access').linkedCustomerAccess(req, config),
       supplied_recordings_enabled: config.supplied_recordings_enabled === true,
+      recording_setup_enabled: config.recording_setup_enabled === true,
       consent_version: configuredConsentVersion,
       consent_notice: config.consent_notice,
       consent_choices: config.consent_choices || {},
@@ -504,7 +507,8 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
     const choiceLabels = config.consent_choices || {};
     const choicesReady = ['delete_after_order', 'future_purchases', 'development_use']
       .every(key => typeof choiceLabels[key] === 'string' && choiceLabels[key].trim());
-    const consentApproved = process.env.VOICE_CUSTOMER_CAPTURE_APPROVED === 'true' &&
+    const consentApproved = consentVersion === config.consent_version &&
+      process.env.VOICE_CUSTOMER_CAPTURE_APPROVED === 'true' &&
       process.env.VOICE_CONSENT_APPROVED === 'true' &&
       !String(config.consent_notice).includes('DRAFT') && !String(consentVersion).toLowerCase().startsWith('draft') &&
       choicesReady && config.consent_document_path === '/consent';
@@ -519,6 +523,11 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
     }
     if (submittedConsent.adult_confirmed !== true || submittedConsent.own_voice_confirmed !== true) {
       return res.status(400).json({ error: 'Confirm that you are 18 or older and are recording your own voice before starting.' });
+    }
+    let initialRecordingSetup = null;
+    if (sourceMode === 'GUIDED_RECORDING' && config.recording_setup_enabled === true) {
+      try { initialRecordingSetup = recordingSetup.setup(req.body?.recording_setup, { requireBrowser: true }); }
+      catch (error) { return res.status(400).json({ error: 'Choose your recording setup and complete the microphone test before starting.' }); }
     }
     await fsp.mkdir(SESSION_DIR, { recursive: true });
     const existingDirs = await fsp.readdir(SESSION_DIR, { withFileTypes: true });
@@ -549,6 +558,8 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
       created_at: now,
       updated_at: now,
       status: 'RECORDING',
+      recording_setup_required: sourceMode === 'GUIDED_RECORDING' && config.recording_setup_enabled === true,
+      ...(initialRecordingSetup ? { recording_setup: initialRecordingSetup } : {}),
       consent: {
         accepted: true,
         current_order: true,
@@ -606,6 +617,11 @@ app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigi
       const section = Number(req.body?.section);
       if (!Number.isInteger(section) || section < 1 || section > SPECIAL_MESSAGE.id) return res.status(400).json({ error: 'Section must be between 1 and 9.' });
       const isMessage = section === SPECIAL_MESSAGE.id;
+      let clipRecordingSetup = null;
+      if (manifest.recording_setup_required === true) {
+        try { clipRecordingSetup = recordingSetup.setup(JSON.parse(req.body?.recording_setup || '')); }
+        catch (error) { return res.status(400).json({ error: 'Recording setup for this take is missing or invalid. Update the setup and retry saving this take.' }); }
+      }
       const promptConfig = JSON.parse(await fsp.readFile(SECTION_CONFIG, 'utf8'));
       const selectedSection = isMessage ? SPECIAL_MESSAGE : promptConfig.sections.find(item => item.id === section);
       if (!selectedSection || !selectedSection.title || !selectedSection.instructions) return res.status(409).json({ error: 'This section prompt is not configured yet.' });
@@ -641,6 +657,7 @@ app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigi
         duration_seconds: Math.round(duration * 1000) / 1000,
         bytes: req.file.size,
         sha256: sha256(req.file.buffer),
+        ...(clipRecordingSetup ? { recording_setup: clipRecordingSetup, recording_setup_captured_at: new Date().toISOString() } : {}),
         uploaded_at: new Date().toISOString()
       };
       takes.push(clip);
