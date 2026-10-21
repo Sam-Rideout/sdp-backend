@@ -145,13 +145,18 @@ function attachWixOrders(app, context) {
         item.can_choose_another=item.cancellation&&item.cancellation.status==='REQUESTED'?false:Boolean(item.cancellation&&['CANCELLED','TOO_LATE'].includes(item.cancellation.status))||['CANCELLED','REFUNDED','COMPLETED'].includes(item.order_status);
       }
       const creationAllowed=songAccess.memberAllowed(claims.sub);
+      let activeSong=true;
+      let admissionMessage=require('./account-song-limit').MESSAGE;
+      try { activeSong=await require('./account-song-limit').createAccountSongGate(context.dataDir).findActive(claims.sub); }
+      catch { admissionMessage='Your current song status could not be confirmed. Please contact Project X before creating another song.'; }
       for(const item of all){
         const sid=item.kind==='SELECTION'?item.id:item.selection_id;
         item.birthday_message=sid&&context.messageSummary?await context.messageSummary(claims.sub,sid):null;
         item.can_add_message=item.kind==='SELECTION'&&!item.cancellation&&item.birthday_message?.can_record===true;
         item.creation=sid&&context.creationSummary?await context.creationSummary(claims.sub,sid):null;
-        item.can_create_song=creationAllowed&&item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&(item.birthday_message?.can_record===true||item.birthday_message?.committed===true)&&['RECORDED','SKIPPED'].includes(item.birthday_message?.choice);
+        item.can_create_song=creationAllowed&&!activeSong&&item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&(item.birthday_message?.can_record===true||item.birthday_message?.committed===true)&&['RECORDED','SKIPPED'].includes(item.birthday_message?.choice);
         if(item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&!creationAllowed) item.creation_message='Song creation is not enabled for this account yet. Please contact Project X.';
+        if(activeSong&&item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&creationAllowed) item.creation_message=admissionMessage;
         if(item.creation && item.kind==='SELECTION'&&!item.cancellation){
           item.can_add_message=false;
           item.status_label=item.creation.state==='NEEDS_ATTENTION'?'Project X review needed':item.creation.state==='REQUESTED'?'Waiting for processing':'Preparing your order';

@@ -12,6 +12,7 @@ function authorized(c,now){return Boolean(c&&c.iss==='wix'&&c.aud==='project-x-o
 function attachCreateSong(app,c){
  const root=path.join(c.dataDir,'song-commits');
  const access=c.songAccess || songAccess.createAccess();
+ const accountGate=require('./account-song-limit').createAccountSongGate(c.dataDir);
  const file=id=>{if(!uuid(id))error('Invalid selection.',400);return path.join(root,id+'.json');};
  async function lock(id,fn){await fs.mkdir(root,{recursive:true,mode:0o700});const p=file(id)+'.lock';try{await fs.mkdir(p);}catch(e){if(e.code==='EEXIST')error('Song request is being saved. Refresh shortly.');throw e;}try{return await fn();}finally{await fs.rmdir(p);}}
  async function owned(id,owner){const r=await read(file(id));if(r&&(r.schema_version!=='PX-CREATE-SONG-1.0'||r.selection_id!==id||r.owner_member_id!==owner))error('Song request is unavailable.',404);return r;}
@@ -21,7 +22,7 @@ function attachCreateSong(app,c){
   const approved=access.account(a.sub,a.email);
   if(!approved)return res.status(403).json({code:'SONG_CREATION_NOT_AUTHORIZED',error:'Song creation is not enabled for this account yet. Please contact Project X.'});
   if(!await c.consumeTicket(a.jti))return res.status(401).json({error:'Authorization already used. Refresh your orders.'});
-  await lock(a.selection_id,async()=>{
+  await accountGate.exclusive(a.sub,()=>lock(a.selection_id,async()=>{
    let r=await owned(a.selection_id,a.sub);
    if(r){
     if(await withdrawn(r))error('This song request has been withdrawn.');
@@ -30,6 +31,7 @@ function attachCreateSong(app,c){
        (auth ? JSON.stringify(Object.keys(auth).sort().map(k=>[k,auth[k]]))!==JSON.stringify(Object.keys(expected).sort().map(k=>[k,expected[k]])) : !approved.allow_legacy_commands))error('Saved song authorization differs from the approved customer.');
     return res.json({ok:true,creation:publicState(r)});
    }
+   await accountGate.assertAvailable(a.sub,a.selection_id);
    // Freeze uses the recorder's own file lock. If publication is interrupted,
    // repeating the same selection recovers the already frozen message choice.
    const frozen=await c.freezeMessage(a.sub,a.selection_id,approved.customer_id);
@@ -41,8 +43,11 @@ function attachCreateSong(app,c){
     test_authorization:songAccess.evidence(approved),
     frozen,requested_at:new Date().toISOString(),updated_at:new Date().toISOString(),claim_id:null,order_id:'',run_id:''};
    await write(file(r.selection_id),r);res.json({ok:true,creation:publicState(r)});
-  });
- }catch(e){next(e);}});
+  }));
+ }catch(e){
+  if(['ACTIVE_SONG_LIMIT','SONG_REQUEST_IN_PROGRESS','SONG_STATUS_UNAVAILABLE'].includes(e.code))return res.status(e.status||409).json({ok:false,code:e.code,error:e.message});
+  next(e);
+ }});
  app.get('/api/transfer/song-commits/:memberId',c.transferAuth,async(req,res,next)=>{try{
   const owner=req.params.memberId;if(!member(owner))error('Invalid owner.',400);
   let files=[];try{files=await fs.readdir(root);}catch(e){if(e.code!=='ENOENT')throw e;}
