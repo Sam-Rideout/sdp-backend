@@ -30,6 +30,7 @@ function validateSnapshot(body) {
       || !(o.selection_id === '' || uuid(o.selection_id))
       || !['','CREATED','READY','PENDING','QUEUED','SENT','FAILED'].includes(o.delivery_status)
       || !(o.sent_at === '' || date(o.sent_at))) throw new Error('Invalid order record.');
+    if(o.product_type!==undefined&&!['VOICE_CLONE','ORIGINAL_MESSAGE'].includes(o.product_type))throw new Error('Unknown order product.');
     const processing_started_at = o.processing_started_at ?? '';
     const processing_finished_at = o.processing_finished_at ?? '';
     const processing_status = o.processing_status ?? '';
@@ -44,7 +45,7 @@ function validateSnapshot(body) {
     // Explicit public whitelist: never persist model assets, email, logs or local paths.
     return Object.fromEntries(['order_id','order_status','song_name','px_song_id','created_at',
       'updated_at','test_order','selection_id','delivery_status','sent_at',
-      'processing_started_at','processing_finished_at','processing_status'].map(k => [k,o[k]]));
+      'processing_started_at','processing_finished_at','processing_status','product_type'].map(k => [k,o[k]]));
   });
   return {schema_version:body.schema_version, owner_member_id:body.owner_member_id,
     captured_at:body.captured_at, truncated:body.truncated, orders};
@@ -128,7 +129,7 @@ function attachWixOrders(app, context) {
         const record=JSON.parse(await fs.readFile(file,'utf8'));validateRecord(record,e.name);
         if(record.owner_member_id===claims.sub && !selectionIds.has(record.selection_id))selections.push({
           id:record.selection_id,kind:'SELECTION',order_id:'',px_song_id:record.px_song_id,song_name:record.px_song_id,
-          status_label:'Song selected',message:'Your selection has been saved. Order processing has not yet been confirmed here.',
+          product_type:record.product_type||'VOICE_CLONE',status_label:'Song selected',message:'Your selection has been saved. Order processing has not yet been confirmed here.',
           created_at:record.selected_at,updated_at:record.selected_at,test_order:false,delivery_label:'',recovery_action:null
         });
       }
