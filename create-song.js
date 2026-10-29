@@ -78,9 +78,9 @@ function attachCreateSong(app,c){
    if(!r||r.claim_id!==b.claim_id||r.order_id!==b.order_id||r.mode!=='ACCOUNT_TEST'
      ||r.authorize_comped!==true||r.authorize_test_email!==true
      ||r.frozen?.selection?.px_song_id!=='PX000311'
-     ||r.frozen?.selection?.customer_id!=='PXC-000004')error('Recovery authority rejected.');
+     ||r.frozen?.selection?.customer_id!=='PXC-000003')error('Recovery authority rejected.');
    const approved=access.account(b.owner_member_id,b.email);
-   if(!approved||approved.customer_id!=='PXC-000004')error('Recovery account is not approved.',403);
+   if(!approved||approved.customer_id!=='PXC-000003')error('Recovery account is not approved.',403);
    const expected=songAccess.evidence(approved),auth=r.test_authorization;
    if(auth ? JSON.stringify(Object.keys(auth).sort().map(k=>[k,auth[k]]))!==JSON.stringify(Object.keys(expected).sort().map(k=>[k,expected[k]])) : !approved.allow_legacy_commands)error('Recovery approval changed.');
    if(await withdrawn(r))error('Request was withdrawn.');
