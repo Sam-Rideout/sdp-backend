@@ -65,6 +65,41 @@ function attachCreateSong(app,c){
    res.json({ok:true,command:{...r,withdrawn:await withdrawn(r)}});
   });
  }catch(e){next(e);}});
+ // Explicit operator recovery for the missing-launcher failure of PXO-000034 only.
+ // Normal receipts retain their terminal-state and identity protections.
+ app.post('/api/transfer/song-commits/:selectionId/recover-pxo-000034',c.transferAuth,async(req,res,next)=>{try{
+  const b=req.body||{}, id=req.params.selectionId;
+  if(id!=='ff3d22e9-9d6a-4340-a394-1686cad8082d'||b.order_id!=='PXO-000034'
+    ||b.source_run_id!=='PXR-000036'||b.claim_id!=='c8472fb1-65ae-4cab-8d87-62701d25b7cf'
+    ||b.recovery_id!=='PXO-000034-MISSING-LAUNCHER-1'||!/^PXR-\d{6}$/.test(b.run_id||'')
+    ||b.run_id===b.source_run_id||!member(b.owner_member_id))error('Recovery identity rejected.');
+  await accountGate.exclusive(b.owner_member_id,()=>lock(id,async()=>{
+   const r=await owned(id,b.owner_member_id);
+   if(!r||r.claim_id!==b.claim_id||r.order_id!==b.order_id||r.mode!=='ACCOUNT_TEST'
+     ||r.authorize_comped!==true||r.authorize_test_email!==true
+     ||r.frozen?.selection?.px_song_id!=='PX000311'
+     ||r.frozen?.selection?.customer_id!=='PXC-000004')error('Recovery authority rejected.');
+   const approved=access.account(b.owner_member_id,b.email);
+   if(!approved||approved.customer_id!=='PXC-000004')error('Recovery account is not approved.',403);
+   const expected=songAccess.evidence(approved),auth=r.test_authorization;
+   if(auth ? JSON.stringify(Object.keys(auth).sort().map(k=>[k,auth[k]]))!==JSON.stringify(Object.keys(expected).sort().map(k=>[k,expected[k]])) : !approved.allow_legacy_commands)error('Recovery approval changed.');
+   if(await withdrawn(r))error('Request was withdrawn.');
+   const prior=r.operator_recoveries||[];
+   if(!Array.isArray(prior))error('Recovery history requires review.');
+   const existing=prior.find(x=>x.recovery_id===b.recovery_id);
+   if(existing){
+    if(prior.length!==1||existing.run_id!==b.run_id||r.run_id!==b.run_id)error('Recovery was already bound to another run.');
+    return res.json({ok:true,already_recovered:true,creation:publicState(r)});
+   }
+   if(prior.length||r.state!=='NEEDS_ATTENTION'||r.run_id!==b.source_run_id)error('Only the original technical failure can be recovered.');
+   await accountGate.assertAvailable(b.owner_member_id,id);
+   r.operator_recoveries=[{recovery_id:b.recovery_id,source_run_id:r.run_id,run_id:b.run_id,
+     previous_state:r.state,previous_updated_at:r.updated_at,authorized_by:'Sam Rideout',
+     reason:'Missing Executive Office launcher script restored; administrator-authorized rerun.',at:new Date().toISOString()}];
+   r.run_id=b.run_id;r.state='WORKING';r.updated_at=new Date().toISOString();
+   await write(file(id),r);res.json({ok:true,creation:publicState(r)});
+  }));
+ }catch(e){next(e);}});
  app.post('/api/transfer/song-commits/:selectionId/receipt',c.transferAuth,async(req,res,next)=>{try{
   await lock(req.params.selectionId,async()=>{
    const b=req.body||{};const r=await owned(req.params.selectionId,b.owner_member_id);
