@@ -63,8 +63,9 @@ function attachBirthdayMessage(app,c){
    fail('This song request has been withdrawn.');
   }
   if(editing){
+   if(sel.record.product_type==='ORIGINAL_ONLY' && editing!=='SKIP')fail('This product does not include a recorded message.');
    if(s.commit_id || s.claim_id || orders.length)fail('This message is locked for its order. Choose a new song request to record another message.');
-   if(sel.record.product_type!=='ORIGINAL_MESSAGE'&&!matchesProfile(sel.record,await c.readyProfile(owner,sel.record.voice_profile_id)))fail('Your saved voice profile must be READY for this song selection.');
+   if(!require('./song-products').isOriginal(sel.record)&&!matchesProfile(sel.record,await c.readyProfile(owner,sel.record.voice_profile_id)))fail('Your saved voice profile must be READY for this song selection.');
   }
   return {sel,s,orders};
  }
@@ -96,7 +97,7 @@ function attachBirthdayMessage(app,c){
  }catch(e){next(e);}});
  app.post('/api/birthday-message/:selectionId/skip',...modify,async(req,res,next)=>{try{
   await lock(req.params.selectionId,async()=>{
-   const {s}=await available(req.params.selectionId,req.memberId,true,true);const old={...s};
+   const {s}=await available(req.params.selectionId,req.memberId,'SKIP',true);const old={...s};
    s.audio=null;s.choice='SKIPPED';s.updated_at=new Date().toISOString();await write(statePath(s.selection_id),s);await purgeAudio(s.selection_id,old);
    res.json({ok:true,...publicState(s)});
   });
@@ -111,10 +112,11 @@ function attachBirthdayMessage(app,c){
   if(!uuid(claim))fail('Invalid message claim.',400);
   await lock(id,async()=>{
    const {sel,s,orders}=await available(id,owner,false,true);
+   if(sel.record.product_type==='ORIGINAL_ONLY' && (s.choice!=='SKIPPED'||s.audio))fail('Original-only message evidence is invalid.');
    if(s.claim_id && s.claim_id!==claim)fail('This message is already locked by another processing request.');
    if(!s.claim_id && orders.length)fail('An order already exists for this selection.');
    if(!s.claim_id){
-    if(sel.record.product_type!=='ORIGINAL_MESSAGE'&&!matchesProfile(sel.record,await c.readyProfile(owner,sel.record.voice_profile_id)))fail('The selection no longer matches the READY profile.');
+    if(!require('./song-products').isOriginal(sel.record)&&!matchesProfile(sel.record,await c.readyProfile(owner,sel.record.voice_profile_id)))fail('The selection no longer matches the READY profile.');
     s.claim_id=claim;if(s.choice==='NONE')s.choice='SKIPPED';s.claimed_at=new Date().toISOString();s.updated_at=s.claimed_at;await write(statePath(id),s);
    }
    res.json({ok:true,message:s});
@@ -144,16 +146,20 @@ function attachBirthdayMessage(app,c){
   return lock(id,async()=>{
    if(expectedCustomerId!==undefined){const checked=await selection(id,owner);if(checked.record.customer_id!==expectedCustomerId)fail('Song selection ownership differs from the approved customer.');}
    const {sel,s,orders}=await available(id,owner,false,true);
+   if(sel.record.product_type==='ORIGINAL_ONLY'){
+    if(s.audio || !['NONE','SKIPPED'].includes(s.choice))fail('This product cannot contain message audio.');
+    if(s.choice==='NONE'){s.choice='SKIPPED';s.updated_at=new Date().toISOString();await write(statePath(id),s);}
+   }
    if(s.commit_id===id)return {selection:sel.record,selection_sha256:sel.sha256,message:{choice:s.choice,clip_id:s.audio?.clip_id||'',sha256:s.audio?.sha256||''}};
    if(s.claim_id||orders.length)fail('This song selection already has an order.');
-   if(sel.record.product_type!=='ORIGINAL_MESSAGE'&&!matchesProfile(sel.record,await c.readyProfile(owner,sel.record.voice_profile_id)))fail('Your voice profile must be READY.');
+   if(!require('./song-products').isOriginal(sel.record)&&!matchesProfile(sel.record,await c.readyProfile(owner,sel.record.voice_profile_id)))fail('Your voice profile must be READY.');
    if(!['RECORDED','SKIPPED'].includes(s.choice))fail('Record your message or choose Continue without a message first.');
    s.commit_id=id;s.committed_at=new Date().toISOString();await write(statePath(id),s);
    return {selection:sel.record,selection_sha256:sel.sha256,message:{choice:s.choice,clip_id:s.audio?.clip_id||'',sha256:s.audio?.sha256||''}};
   });
  },async summaryFor(owner,id){
   if(!uuid(id))return null;
-  try{const {s,orders}=await available(id,owner);return {...publicState(s,orders),can_record:!s.commit_id&&!s.claim_id&&!orders.length};}
+  try{const {s,orders}=await available(id,owner);return {...publicState(s,orders),can_record:!s.commit_id&&!s.claim_id&&!orders.length&&(await selection(id,owner)).record.product_type!=='ORIGINAL_ONLY'};}
   catch(e){if([404,409].includes(e.status))return {choice:'UNAVAILABLE',locked:true,can_record:false};throw e;}
  }};
 }

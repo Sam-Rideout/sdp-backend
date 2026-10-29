@@ -9,7 +9,7 @@ const FIELDS = ['customer_id', 'session_id', 'voice_profile_id', 'voice_model_id
   'model_sha256', 'index_sha256', 'certification_id', 'certification_sha256'];
 
 function matchesProfile(record, profile) {
-  return Boolean(record.product_type!=='ORIGINAL_MESSAGE' && profile && record.owner_member_id === profile.owner_member_id
+  return Boolean(!require('./song-products').isOriginal(record) && profile && record.owner_member_id === profile.owner_member_id
     && FIELDS.every(key => record[key] === profile[key])
     && record.profile_origin === profile.profile_origin
     && record.account_test_only === profile.account_test_only
@@ -17,14 +17,14 @@ function matchesProfile(record, profile) {
 }
 
 function validateRecord(record, filename) {
-  if (record?.product_type === 'ORIGINAL_MESSAGE') {
+  if (require('./song-products').isOriginal(record)) {
     const forbidden=[...FIELDS.filter(k=>k!=='customer_id'),'profile_origin','account_test_only','consent_session_id'];
     if(record.schema_version!=='PX-SONG-SELECTION-2.0'||record.status!=='SELECTED'
        ||typeof record.owner_member_id!=='string'||record.owner_member_id.length<3||record.owner_member_id.length>200
        ||!/^PXC-\d{6}$/.test(record.customer_id||'')||!(/^[a-f0-9]{48}$/).test(record.request_id||'')
        ||!(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/).test(record.selection_id||'')
        ||!/^PX\d{6}$/.test(record.px_song_id||'')||typeof record.catalog_item_id!=='string'||!record.catalog_item_id
-       ||record.price_minor!==1399||record.currency!=='CAD'||!Number.isFinite(Date.parse(record.selected_at))
+       ||record.price_minor!==require('./song-products').PRODUCTS[record.product_type].price_minor||record.currency!=='CAD'||!Number.isFinite(Date.parse(record.selected_at))
        ||forbidden.some(k=>Object.prototype.hasOwnProperty.call(record,k))
        ||filename!==hash(`${record.owner_member_id}\n${record.request_id}`)+'.json')throw new Error('Invalid original-song selection.');
     return;
@@ -56,7 +56,7 @@ function attachSongSelectionTransfer(app, context) {
       try {
         const member = req.params.memberId;
         const productFilter=req.query?.product;
-        if(productFilter!==undefined&&!['VOICE_CLONE','ORIGINAL_MESSAGE'].includes(productFilter))return res.status(400).json({error:'Unknown song product.'});
+        if(productFilter!==undefined&&!['VOICE_CLONE','ORIGINAL_MESSAGE','ORIGINAL_ONLY'].includes(productFilter))return res.status(400).json({error:'Unknown song product.'});
         if (typeof member !== 'string' || member.length < 3 || member.length > 200
           || member.trim() !== member || /[\x00-\x1f\x7f]/.test(member)) {
           return res.status(400).json({ error: 'Invalid member identity.' });
@@ -78,7 +78,7 @@ function attachSongSelectionTransfer(app, context) {
             if (!cancellation || cancellation.status === 'TOO_LATE') records.push(record);
           }
         }
-        const needsProfiles=records.some(r=>r.product_type!=='ORIGINAL_MESSAGE');
+        const needsProfiles=records.some(r=>!require('./song-products').isOriginal(r));
         const profile = needsProfiles ? await context.readyProfile(member) : null;
         const profiles = !needsProfiles ? [] : context.profiles
           ? (await context.profiles(member)).filter(x => x.record.status === 'READY').map(x => x.record)

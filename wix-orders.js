@@ -30,7 +30,7 @@ function validateSnapshot(body) {
       || !(o.selection_id === '' || uuid(o.selection_id))
       || !['','CREATED','READY','PENDING','QUEUED','SENT','FAILED'].includes(o.delivery_status)
       || !(o.sent_at === '' || date(o.sent_at))) throw new Error('Invalid order record.');
-    if(o.product_type!==undefined&&!['VOICE_CLONE','ORIGINAL_MESSAGE'].includes(o.product_type))throw new Error('Unknown order product.');
+    if(o.product_type!==undefined&&!['VOICE_CLONE','ORIGINAL_MESSAGE','ORIGINAL_ONLY'].includes(o.product_type))throw new Error('Unknown order product.');
     const processing_started_at = o.processing_started_at ?? '';
     const processing_finished_at = o.processing_finished_at ?? '';
     const processing_status = o.processing_status ?? '';
@@ -155,7 +155,8 @@ function attachWixOrders(app, context) {
         item.birthday_message=sid&&context.messageSummary?await context.messageSummary(claims.sub,sid):null;
         item.can_add_message=item.kind==='SELECTION'&&!item.cancellation&&item.birthday_message?.can_record===true;
         item.creation=sid&&context.creationSummary?await context.creationSummary(claims.sub,sid):null;
-        item.can_create_song=creationAllowed&&!activeSong&&item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&(item.birthday_message?.can_record===true||item.birthday_message?.committed===true)&&['RECORDED','SKIPPED'].includes(item.birthday_message?.choice);
+        const originalOnlyReady=item.product_type==='ORIGINAL_ONLY' && item.birthday_message && !item.birthday_message.locked && ['NONE','SKIPPED'].includes(item.birthday_message.choice);
+        item.can_create_song=creationAllowed&&!activeSong&&item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&(originalOnlyReady||((item.birthday_message?.can_record===true||item.birthday_message?.committed===true)&&['RECORDED','SKIPPED'].includes(item.birthday_message?.choice)));
         if(item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&!creationAllowed) item.creation_message='Song creation is not enabled for this account yet. Please contact Project X.';
         if(activeSong&&item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&creationAllowed) item.creation_message=admissionMessage;
         if(item.creation && item.kind==='SELECTION'&&!item.cancellation){

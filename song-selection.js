@@ -16,7 +16,7 @@ function authorized(claims, now) {
     && claims.exp > now && claims.exp <= now + 180 && claims.exp > claims.iat
     && token(claims.jti) && token(claims.request_id)
     && (claims.voice_profile_id === undefined || bounded(claims.voice_profile_id))
-    && (claims.product_type===undefined||['VOICE_CLONE','ORIGINAL_MESSAGE'].includes(claims.product_type))
+    && (claims.product_type===undefined||['VOICE_CLONE','ORIGINAL_MESSAGE','ORIGINAL_ONLY'].includes(claims.product_type))
     && bounded(claims.catalog_item_id)
     && typeof claims.px_song_id === 'string' && /^PX[0-9]{6}$/.test(claims.px_song_id));
 }
@@ -46,7 +46,7 @@ function attachSongSelection(app, context) {
       if (locks.has(target)) return res.status(409).json({ error: 'Selection is being saved. Please retry.' });
       lock = target;
       locks.add(lock);
-      if(product==='ORIGINAL_MESSAGE'){
+      if(require('./song-products').isOriginal({product_type:product})){
         const approved=access.account(claims.sub,claims.email);
         if(!approved)return res.status(403).json({error:'This product is not enabled for this account yet.'});
         let saved;try{saved=JSON.parse(await fs.readFile(target,'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
@@ -56,7 +56,7 @@ function attachSongSelection(app, context) {
           return res.json({ok:true,status:'SELECTED',selection_id:saved.selection_id,px_song_id:saved.px_song_id,product_type:product});
         }
         await require('./waiting-song-limit').assertWaitingSpace(context.dataDir,claims.sub);
-        const record={schema_version:'PX-SONG-SELECTION-2.0',status:'SELECTED',selection_id:crypto.randomUUID(),owner_member_id:claims.sub,customer_id:approved.customer_id,request_id:claims.request_id,catalog_item_id:claims.catalog_item_id,px_song_id:claims.px_song_id,product_type:product,price_minor:1399,currency:'CAD',selected_at:new Date().toISOString()};
+        const record={schema_version:'PX-SONG-SELECTION-2.0',status:'SELECTED',selection_id:crypto.randomUUID(),owner_member_id:claims.sub,customer_id:approved.customer_id,request_id:claims.request_id,catalog_item_id:claims.catalog_item_id,px_song_id:claims.px_song_id,product_type:product,price_minor:require('./song-products').PRODUCTS[product].price_minor,currency:'CAD',selected_at:new Date().toISOString()};
         await fs.mkdir(root,{recursive:true,mode:0o700});
         const temporary=target+'.'+crypto.randomUUID()+'.tmp';
         try{await fs.writeFile(temporary,JSON.stringify(record,null,2)+'\n',{flag:'wx',mode:0o600});await fs.link(temporary,target);}finally{await fs.unlink(temporary).catch(e=>{if(e.code!=='ENOENT')throw e;});}
