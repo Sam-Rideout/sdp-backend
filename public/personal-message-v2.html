@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#123253">
+<title>Project X | Personal Message</title>
+<style>
+:root{font-family:Arial,Helvetica,sans-serif;color:#122e49;font-synthesis:none}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:linear-gradient(145deg,#9ec7e7 0%,#689cc6 50%,#224b73 100%);padding:clamp(18px,4vw,48px) 14px}
+main{max-width:730px;margin:0 auto;background:rgba(250,253,255,.88);box-shadow:0 15px 45px #08274433;border:1px solid #ffffffaa;border-radius:18px;padding:clamp(22px,5vw,42px)}
+.eyebrow{font-size:12px;letter-spacing:.17em;font-weight:700;color:#476b8c}h1{font-size:clamp(26px,4vw,36px);margin:10px 0 12px;line-height:1.2}p{font-size:16px;line-height:1.55;margin:10px 0}.song{font-size:14px;font-weight:700;color:#486881;overflow-wrap:anywhere}
+.instructions{margin:23px 0;background:#e8f2fa;border-radius:10px;padding:17px 18px}.instructions p{margin:0 0 8px}.instructions p:last-child{margin:0}
+.consent{display:flex;align-items:flex-start;gap:12px;padding:16px;border:1px solid #98aec3;border-radius:9px;line-height:1.5;background:white;cursor:pointer}.consent input{width:21px;height:21px;flex:0 0 21px;accent-color:#173e63;margin:2px 0 0}
+.timer{text-align:center;font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;margin:22px 0 16px}.buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+button{font:700 15px Arial,sans-serif;min-height:51px;padding:12px 14px;border:0;border-radius:7px;background:#153b5f;color:white;cursor:pointer}button.secondary{background:#385974}button:disabled{cursor:not-allowed;opacity:.46}button:focus-visible,input:focus-visible{outline:3px solid #cc9b45;outline-offset:3px}[hidden]{display:none!important}
+.full{display:block;width:100%;margin-top:11px}.status{min-height:48px;line-height:1.5;padding:14px 0;color:#274964;font-size:15px}audio{display:block;width:100%;margin:10px 0 17px}.fine{font-size:12px;color:#58748d;margin-top:22px}
+@media(max-width:540px){.buttons{grid-template-columns:1fr}.timer{font-size:28px}main{padding:22px 18px}}
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">PROJECT X · PERSONAL MESSAGE</div>
+  <h1>Record a Personal Message</h1>
+  <div id="songId" class="song">Verifying your song selection...</div>
+  <section class="instructions" aria-label="Recording instructions">
+    <p>Add your own spoken message to make this song even more special.</p>
+    <p><strong>Aim for about 6 seconds; 8 seconds maximum.</strong> Speak naturally in a quiet place. A little silence at the beginning and end can be removed without speeding up your words.</p>
+  </section>
+  <label class="consent"><input id="consent" type="checkbox" disabled><span>I agree to use my recording as the personal message for this selected song. This message will not be used to train a voice model.</span></label>
+  <div id="timer" class="timer">00:00 / 00:08</div>
+  <div class="buttons">
+    <button id="start" disabled>Start Recording</button>
+    <button id="stop" disabled>Stop and Save</button>
+  </div>
+  <div id="status" class="status" role="status" aria-live="polite">Connecting to Project X...</div>
+  <button id="retrySave" class="full" hidden disabled>Retry Saving Message</button>
+  <audio id="player" controls preload="none" hidden aria-label="Listen to your personal message"></audio>
+  <div class="buttons">
+    <button id="play" disabled hidden>Play My Message</button>
+    <button id="rerecord" disabled hidden>Re-record Message</button>
+  </div>
+  <button id="skip" class="full secondary" disabled>Continue Without a Message</button>
+  <button id="next" class="full secondary">Next — My Orders</button>
+  <p class="fine">Your personal message is attached only to the selected song. Recording is optional.</p>
+</main>
+<script src="/personal-message-v2.js" defer></script>
+</body>
+</html>
