@@ -74,6 +74,7 @@ function attachBirthdayMessage(app,c){
    audio_available:Boolean(s.audio&&!s.audio.deleted_at),updated_at:s.updated_at};}
  const browser=[c.authenticatedMember,c.requireCaptureAccess];
  const modify=[...browser,c.requireSameOrigin,(req,res,next)=>req.get('X-PX-Message')==='1'?next():res.status(403).json({error:'Message request could not be verified.'})];
+ app.get('/personal-message-v2.js', (req, res) => res.sendFile(path.join(c.root, 'public', 'personal-message-v2.js')));
  app.get('/personal-message-v2', (req, res) => res.sendFile(path.join(c.root, 'public', 'personal-message-v2.html')));
  app.get('/birthday-message',(req,res)=>res.sendFile(path.join(c.root,'public','birthday-message.html')));
  app.get('/api/birthday-message/:selectionId',...browser,async(req,res,next)=>{try{
