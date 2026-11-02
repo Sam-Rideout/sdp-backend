@@ -3,6 +3,8 @@
 // Dedicated browser recorder. Uses the EXISTING Project X message API only.
 const PX_RATE = 24000;
 const PX_LIMIT = 8;
+const PX_SILENCE_SECONDS = 1.0;
+const PX_SPEECH_RMS = 0.007; // Consistent with the conservative boundary-trimming threshold.
 const PX_CONSENT = "order-message-only-2026-10-15-v1";
 const PX_ORDERS_URL = "https://www.sdpsongs.ca/orders";
 const PX_SELECTION = new URLSearchParams(location.search).get("selection");
@@ -32,6 +34,9 @@ let previewDuration = 0;
 let previewUrl = null;
 let needsSave = false;
 let saveAttempted = false;
+let speechStarted = false;
+let voicedBlocks = 0;
+let lastVoiceSample = 0;
 
 function status(message) { el("status").textContent = message; }
 function clock(n) { return "00:" + Math.min(PX_LIMIT,Math.max(0,n)).toFixed(1).padStart(4,"0"); }
@@ -177,14 +182,34 @@ async function start() {
     source=context.createMediaStreamSource(stream);
     processor=context.createScriptProcessor(2048,1,1);
     chunks=[];count=0;
+    speechStarted=false;voicedBlocks=0;lastVoiceSample=0;
     processor.onaudioprocess=event=>{
       event.outputBuffer.getChannelData(0).fill(0);
       if(!recording)return;
       const input=event.inputBuffer.getChannelData(0);
       const left=Math.max(0,Math.floor(sampleRate*PX_LIMIT)-count);
       const take=Math.min(left,input.length);
-      if(take>0){chunks.push(new Float32Array(input.subarray(0,take)));count+=take;}
+      if(take>0){
+        chunks.push(new Float32Array(input.subarray(0,take)));
+        count+=take;
+        // Detect speech only after sustained input (roughly 85 ms at 48 kHz).
+        // Do not start the silence timer while waiting for the first words.
+        let power=0;
+        for(let i=0;i<take;i++)power+=input[i]*input[i];
+        const rms=Math.sqrt(power/take);
+        if(rms>=PX_SPEECH_RMS){
+          voicedBlocks++;
+          if(voicedBlocks>=2){speechStarted=true;lastVoiceSample=count;}
+        }else{
+          voicedBlocks=0;
+        }
+      }
+      // Keep the hard cap authoritative. A take that hits it is never saved.
       if(count>=Math.floor(sampleRate*PX_LIMIT))void stop(true);
+      else if(speechStarted && count-lastVoiceSample >= Math.ceil(sampleRate*PX_SILENCE_SECONDS)){
+        status("Speech ended. Preparing your message for review...");
+        void stop(false);
+      }
     };
     source.connect(processor);
     processor.connect(context.destination);
@@ -193,7 +218,7 @@ async function start() {
     startedAt=performance.now();
     buttonState();
     showTime(0);
-    status("Recording... Speak naturally. Stop when you're finished.");
+    status("Recording... Speak naturally. The recorder stops after 1 second of silence once speech begins. You can also press Stop.");
     timer=setInterval(()=>{
       if(!recording)return;
       const elapsed=Math.min(PX_LIMIT,(performance.now()-startedAt)/1000);
@@ -221,6 +246,7 @@ async function stop(timedOut = false) {
         return;
       }
       if(count<sampleRate*.1)throw new Error("The message is too short. Please try again.");
+      if(!speechStarted)throw new Error("No clear speech was detected. Check your microphone and try again.");
       const joined=new Float32Array(count);
       let at=0;for(const block of chunks){joined.set(block,at);at+=block.length;}
       const trimmed=trimBoundarySilence(joined,sampleRate);
