@@ -263,6 +263,32 @@ def main():
         worker=pickup.PickupWorker(args.url,root/'Voices',pickup_dir,token);sequence=Sequence(root,api,state_dir)
         print('CUSTOMER SEQUENCE ACTIVE: automatic pickup, Executive training, automatic key selection and certification. Ctrl+C stops this worker.',flush=True)
         RUNTIME.start();failures=0
+
+        # Independent availability reporting, without another production launcher.
+        from profile_availability_heartbeat import start_heartbeat
+
+        stop_availability = None
+
+        if os.environ.get(
+            'PX_PUBLISH_PROFILE_AVAILABILITY', ''
+        ).lower() == 'true':
+
+            def publish_current_availability():
+                from px_profile_availability_publish import run
+                run(origin=args.url, token=token, transmit=True)
+
+            def report_availability_error(error):
+                note(
+                    'Voice availability reporting will retry',
+                    error,
+                    'AVAILABILITY_RETRY'
+                )
+
+            stop_availability = start_heartbeat(
+                publish_current_availability,
+                report_availability_error,
+                interval=120
+            )
         try:
             while not stop_requested(root):
                 try:
@@ -286,7 +312,15 @@ def main():
                 for _ in range(delay):
                     if stop_requested(root):break
                     time.sleep(1)
-        finally:RUNTIME.close()
+        finally:
+            if stop_availability is not None:
+                if not stop_availability():
+                    note(
+                        'Availability heartbeat did not stop within shutdown timeout',
+                        None,
+                        'AVAILABILITY_SHUTDOWN'
+                    )
+            RUNTIME.close()
 if __name__=='__main__':
     try:main()
     except KeyboardInterrupt:print('\nPhone sequence worker stopped. Review any active training before restarting.')

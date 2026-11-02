@@ -28,7 +28,83 @@ test('owned PC choice survives message recording and commit while phone remains 
  const listing=await post('/api/wix/voice-profile-status',{ticket:ticket('voice-profile-status')});
  assert.equal(listing.body.profiles.length,2);assert.equal(listing.body.default_voice_profile_id,'PXPITCH-Phone');
  const choose=()=>post('/api/wix/song-selection',{ticket:ticket('song-selection',{request_id:crypto.randomBytes(24).toString('hex'),catalog_item_id:'fixture-catalog',px_song_id:'PX000320',voice_profile_id:'PXPITCH-'+MODEL})});
- const selection=await choose();assert.equal(selection.status,200);const id=selection.body.selection_id;
+  // HTTP ENFORCEMENT: MISSING / UNAVAILABLE / AVAILABLE
+  const {createProfileAvailability,SCHEMA} =
+    require('../profile-availability');
+
+  const availabilityStore =
+    createProfileAvailability(process.env.VOICE_DATA_DIR);
+
+  const certificate = publication();
+
+  const certifiedProfile = {
+    status:'READY',
+    owner_member_id:MEMBER,
+    voice_profile_id:evidence.voice_profile_id,
+    voice_model_id:evidence.voice_model_id,
+    model_sha256:evidence.model_sha256,
+    index_sha256:evidence.index_sha256,
+    certification_id:certificate.certification_id,
+    certification_sha256:certificate.certification_sha256
+  };
+
+  const availabilityReport = {
+    schema_version:SCHEMA,
+    owner_member_id:certifiedProfile.owner_member_id,
+    voice_profile_id:certifiedProfile.voice_profile_id,
+    voice_model_id:certifiedProfile.voice_model_id,
+    model_sha256:certifiedProfile.model_sha256,
+    index_sha256:certifiedProfile.index_sha256,
+    certification_id:certifiedProfile.certification_id,
+    certification_sha256:certifiedProfile.certification_sha256,
+    available:false,
+    checked_at:new Date().toISOString()
+  };
+
+  const previousEnforcement =
+    process.env.PX_ENFORCE_PROFILE_AVAILABILITY;
+
+  let selection;
+
+  try {
+    process.env.PX_ENFORCE_PROFILE_AVAILABILITY = 'true';
+
+    const missing = await choose();
+    assert.equal(missing.status,409,
+      'Missing report must reject HTTP song selection');
+
+    await availabilityStore.publish(
+      certifiedProfile, availabilityReport
+    );
+
+    const unavailable = await choose();
+    assert.equal(unavailable.status,409,
+      'Unavailable report must reject HTTP song selection');
+
+    await availabilityStore.publish(certifiedProfile,{
+      ...availabilityReport,
+      available:true,
+      checked_at:new Date().toISOString()
+    });
+
+    selection = await choose();
+    assert.equal(selection.status,200,
+      'Available report must permit HTTP song selection');
+
+    console.log(
+      'HTTP AVAILABILITY ENFORCEMENT: 409 / 409 / 200 VERIFIED'
+    );
+  }
+  finally {
+    if (previousEnforcement === undefined) {
+      delete process.env.PX_ENFORCE_PROFILE_AVAILABILITY;
+    } else {
+      process.env.PX_ENFORCE_PROFILE_AVAILABILITY =
+        previousEnforcement;
+    }
+  }
+
+  const id=selection.body.selection_id;
  const exported=await (await fetch(base+'/api/transfer/song-selections/'+MEMBER,{headers:auth})).json();
  assert.equal(exported.profiles.length,2);assert.equal(exported.selections[0].current_profile_matches,false);assert.equal(exported.selections[0].profile_origin,'EXISTING_OWNER_TEST');
  const cookie='px_voice_session='+sign({iss:'project-x-voice-capture',sub:MEMBER,email:'sam.rideout.me@gmail.com',exp:Math.floor(Date.now()/1000)+300});
@@ -36,6 +112,17 @@ test('owned PC choice survives message recording and commit while phone remains 
  assert.equal((await post('/api/wix/create-song',{ticket:ticket('create-song',{aud:'project-x-orders',selection_id:id,email:'sam.rideout.me@gmail.com'})})).status,200);
  const commits=await (await fetch(base+'/api/transfer/song-commits/'+MEMBER,{headers:auth})).json();
  assert.equal(commits.commands[0].frozen.selection.voice_model_id,MODEL);assert.equal(commits.commands[0].frozen.message.choice,'SKIPPED');
+  const cancel=await post('/api/wix/cancel-song',{ticket:ticket('cancel-song',{aud:'project-x-orders',kind:'SELECTION',target_id:id})});
+  assert.equal(cancel.status,200);
+  assert.equal(cancel.body.cancellation.status,'REQUESTED');
+  const cancellations=await (await fetch(base+'/api/transfer/song-cancellations',{headers:auth})).json();
+  const command=cancellations.commands.find(x=>x.target_id===id);
+  assert.ok(command);
+  const receipt=await post('/api/transfer/song-cancellations/receipt',{
+    owner_member_id:MEMBER,kind:'SELECTION',target_id:id,
+    command_id:command.command_id,status:'CANCELLED'
+  },auth);
+  assert.equal(receipt.status,200);
  const recordedSelection=await choose();assert.equal(recordedSelection.status,200);
  const recordedId=recordedSelection.body.selection_id,form=new FormData();
  form.set('audio',new Blob([Buffer.alloc(512)],{type:'audio/wav'}),'fixture.wav');
@@ -43,7 +130,7 @@ test('owned PC choice survives message recording and commit while phone remains 
  const upload=await fetch(base+'/api/birthday-message/'+recordedId+'/audio',{method:'POST',headers:{cookie,origin:base,'X-PX-Message':'1'},body:form});
  assert.equal(upload.status,200);assert.equal((await upload.json()).choice,'RECORDED');
  const recordedCommit=await post('/api/wix/create-song',{ticket:ticket('create-song',{aud:'project-x-orders',selection_id:recordedId,email:'sam.rideout.me@gmail.com'})});
- assert.equal(recordedCommit.status,200);
+ if (recordedCommit.status !== 200) console.log('RECORDED COMMIT FAILURE:', recordedCommit.status, JSON.stringify(recordedCommit.body)); assert.equal(recordedCommit.status,200);
  const both=await (await fetch(base+'/api/transfer/song-commits/'+MEMBER,{headers:auth})).json();
  const recorded=both.commands.find(c=>c.selection_id===recordedId);
  assert.equal(recorded.frozen.message.choice,'RECORDED');assert.equal(recorded.frozen.selection.voice_model_id,MODEL);

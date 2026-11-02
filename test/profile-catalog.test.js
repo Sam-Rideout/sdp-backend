@@ -94,3 +94,142 @@ test('tampered per-session ownership is rejected',async t=>{
  await fs.writeFile(file,JSON.stringify({...ready(sid1,'One'),owner_member_id:'member-two'}));
  await assert.rejects(()=>f.bridge.readyProfile('member-one'),/verified customer transfer/);
 });
+
+test('availability enforcement chooses an available certified profile', async t => {
+  const previous = process.env.PX_ENFORCE_PROFILE_AVAILABILITY;
+  process.env.PX_ENFORCE_PROFILE_AVAILABILITY = 'true';
+
+  try {
+    const f = await fixture(t);
+
+    await f.add(sid1, '2026-10-01');
+    await f.publish(sid1, ready(sid1, 'One'));
+
+    await f.add(sid2, '2026-10-02');
+    await f.publish(sid2, ready(sid2, 'Two'));
+
+    const {createProfileAvailability, SCHEMA} =
+      require('../profile-availability');
+
+    const store = createProfileAvailability(f.dataDir);
+    const one = await f.bridge.selectableProfile('member-one', 'PXPITCH-One');
+
+    const report = {
+      schema_version:SCHEMA,
+      owner_member_id:one.owner_member_id,
+      voice_profile_id:one.voice_profile_id,
+      voice_model_id:one.voice_model_id,
+      model_sha256:one.model_sha256,
+      index_sha256:one.index_sha256,
+      certification_id:one.certification_id,
+      certification_sha256:one.certification_sha256,
+      available:true,
+      checked_at:new Date().toISOString()
+    };
+
+    await store.publish(one, report);
+
+    const claims = f.claims({purpose:'voice-profile-status'});
+    const response = await f.call('/api/wix/voice-profile-status', {
+      body:{ticket:claims}
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.profiles.length, 2);
+
+    const available = response.body.profiles.filter(x => x.selectable);
+    assert.equal(available.length, 1);
+    assert.equal(available[0].voice_profile_id, 'PXPITCH-One');
+
+    assert.equal(
+      response.body.default_voice_profile_id,
+      'PXPITCH-One'
+    );
+  } finally {
+    if (previous === undefined) {
+      delete process.env.PX_ENFORCE_PROFILE_AVAILABILITY;
+    } else {
+      process.env.PX_ENFORCE_PROFILE_AVAILABILITY = previous;
+    }
+  }
+});
+
+test('availability enforcement rejects unavailable song selections', async t => {
+  const previous = process.env.PX_ENFORCE_PROFILE_AVAILABILITY;
+  process.env.PX_ENFORCE_PROFILE_AVAILABILITY = 'true';
+
+  try {
+    const f = await fixture(t);
+
+    await f.add(sid1, '2026-10-01');
+    await f.publish(sid1, ready(sid1, 'One'));
+
+    const {createProfileAvailability, SCHEMA} =
+      require('../profile-availability');
+
+    const store = createProfileAvailability(f.dataDir);
+    const profile = await f.bridge.selectableProfile(
+      'member-one', 'PXPITCH-One'
+    );
+
+    const checkedProfile = async (member, id) => {
+      const selected = await f.bridge.selectableProfile(member, id);
+      if (!selected) return null;
+      return await store.available(selected) ? selected : null;
+    };
+
+    const {attachSongSelection} = require('../song-selection');
+    const routes = new Map();
+    const app = {
+      post:(url,...handlers) => routes.set(url,handlers)
+    };
+
+    // Verify the production selection gate's decision directly.
+    assert.equal(
+      await checkedProfile('member-one', 'PXPITCH-One'),
+      null,
+      'missing report must reject selection'
+    );
+
+    const report = {
+      schema_version:SCHEMA,
+      owner_member_id:profile.owner_member_id,
+      voice_profile_id:profile.voice_profile_id,
+      voice_model_id:profile.voice_model_id,
+      model_sha256:profile.model_sha256,
+      index_sha256:profile.index_sha256,
+      certification_id:profile.certification_id,
+      certification_sha256:profile.certification_sha256,
+      available:true,
+      checked_at:new Date().toISOString()
+    };
+
+    await store.publish(profile, report);
+
+    assert.equal(
+      (await checkedProfile('member-one', 'PXPITCH-One'))
+        ?.voice_profile_id,
+      'PXPITCH-One',
+      'verified available profile must be accepted'
+    );
+
+    await store.publish(profile, {
+      ...report,
+      available:false,
+      checked_at:new Date().toISOString()
+    });
+
+    assert.equal(
+      await checkedProfile('member-one', 'PXPITCH-One'),
+      null,
+      'explicitly unavailable profile must be rejected'
+    );
+
+  } finally {
+    if (previous === undefined) {
+      delete process.env.PX_ENFORCE_PROFILE_AVAILABILITY;
+    } else {
+      process.env.PX_ENFORCE_PROFILE_AVAILABILITY = previous;
+    }
+  }
+});

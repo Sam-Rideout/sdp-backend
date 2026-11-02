@@ -122,8 +122,39 @@ function attachProfileStatus(app, context) {
       await pruneOldReplayMarkers();
       // Claims identify the member; browser-supplied member IDs are ignored.
       const result = await snapshot(claims.sub);
-      const profiles = await catalog.publicProfiles(claims.sub);
-      const selected = await catalog.selectableProfile(claims.sub);
+      let profiles = await catalog.publicProfiles(claims.sub);
+      let selected = await catalog.selectableProfile(claims.sub);
+
+      if (process.env.PX_ENFORCE_PROFILE_AVAILABILITY === 'true') {
+        const availability = require('./profile-availability')
+          .createProfileAvailability(dataDir);
+
+        const checked = await Promise.all(profiles.map(async profile => {
+          if (!profile.selectable) return false;
+
+          const certified = await catalog.selectableProfile(
+            claims.sub, profile.voice_profile_id
+          );
+
+          return certified
+            ? await availability.available(certified)
+            : false;
+        }));
+
+        profiles = profiles.map((profile, index) => ({
+          ...profile,
+          selectable: profile.selectable && checked[index]
+        }));
+
+        // Prefer an available profile, even if the newest is unavailable.
+        const firstAvailable = profiles.find(p => p.selectable);
+        selected = firstAvailable
+          ? await catalog.selectableProfile(
+              claims.sub, firstAvailable.voice_profile_id
+            )
+          : null;
+      }
+
       const processing = await hasProcessingProfile(claims.sub);
       res.set('Cache-Control', 'no-store');
       res.json({...result, status:selected ? 'READY' : result.status,

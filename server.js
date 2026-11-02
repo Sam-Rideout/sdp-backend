@@ -822,11 +822,32 @@ require('./voice-phone-flow').attachPhoneFlow(app, {
   ownedManifest, express, profileSnapshot: profileStatusBridge.snapshot
 });
 
+const availabilityGate = require('./profile-availability')
+  .createProfileAvailability(DATA_DIR);
+
+async function availabilityCheckedProfile(member, profileId) {
+  const profile = await profileStatusBridge.selectableProfile(member, profileId);
+
+  if (!profile) return null;
+
+  // Staged rollout: never restrict customers before PC reporting is ready.
+  if (process.env.PX_ENFORCE_PROFILE_AVAILABILITY !== 'true') {
+    return profile;
+  }
+
+  return await availabilityGate.available(profile) ? profile : null;
+}
+
 require('./song-selection').attachSongSelection(app, {
   dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers,
-  readyProfile: profileStatusBridge.selectableProfile
+  readyProfile: availabilityCheckedProfile
 });
 
+require('./profile-availability-route').attachProfileAvailability(app, {
+  dataDir: DATA_DIR,
+  transferAuth,
+  profiles: profileStatusBridge.profiles
+});
 require('./song-selection-transfer').attachSongSelectionTransfer(app, {
   dataDir: DATA_DIR, transferAuth, readyProfile: profileStatusBridge.readyProfile,
   profiles: profileStatusBridge.profiles
