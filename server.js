@@ -816,6 +816,11 @@ require('./profile-deletion').attachProfileDeletion(app, {
   transferAuth, profiles: profileStatusBridge.profiles, readManifest, safeSessionId
 });
 
+// Read-only customer profile discovery for the local PX Admin.
+require('./operator-profile-list').attachOperatorProfileList(app, {
+  transferAuth, profiles: profileStatusBridge.profiles
+});
+
 require('./voice-phone-flow').attachPhoneFlow(app, {
   dataDir: DATA_DIR, sessionDir: SESSION_DIR, readManifest, safeSessionId,
   transferAuth, authenticatedMember, requireSameOrigin, requireCaptureAccess,
