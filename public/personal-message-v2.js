@@ -31,9 +31,10 @@ let previewBlob = null;
 let previewDuration = 0;
 let previewUrl = null;
 let needsSave = false;
+let saveAttempted = false;
 
 function status(message) { el("status").textContent = message; }
-function clock(n) { return "00:" + String(Math.min(8,Math.max(0,Math.floor(n)))).padStart(2,"0"); }
+function clock(n) { return "00:" + Math.min(PX_LIMIT,Math.max(0,n)).toFixed(1).padStart(4,"0"); }
 function showTime(seconds) { el("timer").textContent = clock(seconds) + " / 00:08"; }
 function buttonState() {
   const ready = access && !locked && !busy && !recording && !starting;
@@ -48,8 +49,10 @@ function buttonState() {
   el("play").disabled = !playable || recording || starting;
   el("skip").disabled = !ready;
   el("next").disabled = busy || recording || starting;
-  el("retrySave").hidden = !needsSave;
-  el("retrySave").disabled = !needsSave || !ready;
+  el("save").hidden = !needsSave || saveAttempted;
+  el("save").disabled = !needsSave || saveAttempted || !ready;
+  el("retrySave").hidden = !needsSave || !saveAttempted;
+  el("retrySave").disabled = !needsSave || !saveAttempted || !ready;
   el("player").hidden = !playable;
 }
 async function api(url, options = {}) {
@@ -181,7 +184,7 @@ async function start() {
       const left=Math.max(0,Math.floor(sampleRate*PX_LIMIT)-count);
       const take=Math.min(left,input.length);
       if(take>0){chunks.push(new Float32Array(input.subarray(0,take)));count+=take;}
-      if(count>=Math.floor(sampleRate*PX_LIMIT))void stop();
+      if(count>=Math.floor(sampleRate*PX_LIMIT))void stop(true);
     };
     source.connect(processor);
     processor.connect(context.destination);
@@ -195,7 +198,7 @@ async function start() {
       if(!recording)return;
       const elapsed=Math.min(PX_LIMIT,(performance.now()-startedAt)/1000);
       showTime(elapsed);
-      if(elapsed>=PX_LIMIT)void stop();
+      if(elapsed>=PX_LIMIT)void stop(true);
     },75);
   }catch(error){
     starting=false;recording=false;
@@ -204,7 +207,7 @@ async function start() {
     status("Microphone unavailable: "+error.message+". Your previously saved message is unchanged.");
   }
 }
-async function stop() {
+async function stop(timedOut = false) {
   if(stopPromise)return stopPromise;
   if(!recording)return;
   recording=false;
@@ -213,6 +216,10 @@ async function stop() {
   stopPromise=(async()=>{
     try{
       await releaseMic();
+      if(timedOut || count >= Math.floor(sampleRate*PX_LIMIT)) {
+        status("8-second limit reached. This take was NOT saved because speech might be cut off. Re-record a shorter message and press Stop before the limit. Your previously saved message is unchanged.");
+        return;
+      }
       if(count<sampleRate*.1)throw new Error("The message is too short. Please try again.");
       const joined=new Float32Array(count);
       let at=0;for(const block of chunks){joined.set(block,at);at+=block.length;}
@@ -229,9 +236,10 @@ async function stop() {
       el("player").src=previewUrl;
       el("player").load();
       needsSave=true;
+      saveAttempted=false;
       showTime(duration);
-      await upload();
-    }catch(error){status("Recording could not be saved: "+error.message);}
+      status("Recording ready for review. Listen to the full message, then select Save This Message. Nothing has been uploaded yet.");
+    }catch(error){status("Recording could not be prepared: "+error.message);}
     finally{chunks=[];count=0;busy=false;stopPromise=null;buttonState();}
   })();
   return stopPromise;
@@ -247,18 +255,22 @@ async function upload() {
   try{
     const result=await api(PX_BASE+"/audio",{method:"POST",headers:{"X-PX-Message":"1"},body:form});
     needsSave=false;
+    saveAttempted=false;
     savedState=result;
     status("Personal message saved successfully. You can listen, re-record, or select Next.");
     return result;
   }catch(error){
     needsSave=true;
+    saveAttempted=true;
     status("Message is recorded but NOT saved. Select Retry Saving Message. "+error.message);
     throw error;
   }
 }
 async function retry() {
   if(!needsSave || !previewBlob || busy || recording || starting || locked || !access)return;
-  busy=true;buttonState();
+  busy=true;
+  saveAttempted=true;
+  buttonState();
   try{await upload();}
   catch{/* upload already reports failure and keeps the recording */}
   finally{busy=false;buttonState();}
@@ -288,7 +300,8 @@ function next() {
 function discardObjectUrl() {if(previewUrl)URL.revokeObjectURL(previewUrl);}
 document.addEventListener("DOMContentLoaded",async()=>{
   el("start").addEventListener("click",start);
-  el("stop").addEventListener("click",()=>{void stop();});
+  el("stop").addEventListener("click",()=>{void stop(false);});
+  el("save").addEventListener("click",()=>{void retry();});
   el("rerecord").addEventListener("click",start);
   el("play").addEventListener("click",play);
   el("retrySave").addEventListener("click",()=>{void retry();});
