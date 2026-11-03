@@ -821,6 +821,30 @@ require('./operator-profile-list').attachOperatorProfileList(app, {
   transferAuth, profiles: profileStatusBridge.profiles
 });
 
+// Explicitly disabled until operator authorization is commissioned.
+if (process.env.PX_OPERATOR_DELETION_ENABLED === 'true') {
+  const signingSecret = process.env.PX_OPERATOR_DELETION_SECRET || '';
+
+  if (Buffer.byteLength(signingSecret, 'utf8') < 32) {
+    throw new Error('Operator deletion signing secret is missing.');
+  }
+
+  require('./operator-profile-deletion').attachOperatorProfileDeletion(
+    app,
+    {
+      transferAuth,
+      verifyOperatorProof:
+        require('./operator-deletion-auth').createOperatorDeletionAuth(
+          DATA_DIR, signingSecret
+        ),
+      profiles: profileStatusBridge.profiles,
+      store: require('./profile-deletion')
+        .createProfileDeletionStore(DATA_DIR)
+    }
+  );
+}
+
+
 require('./voice-phone-flow').attachPhoneFlow(app, {
   dataDir: DATA_DIR, sessionDir: SESSION_DIR, readManifest, safeSessionId,
   transferAuth, authenticatedMember, requireSameOrigin, requireCaptureAccess,
