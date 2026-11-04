@@ -797,7 +797,7 @@ app.post('/api/transfer/sessions/:sessionId/confirm', transferAuth, express.json
     }
     req.manifest.status = 'TRANSFERRED_AUDIO_DELETED';
     req.manifest.transferred_at = new Date().toISOString();
-    req.manifest.transfer = { verified_clip_count: expected.length, local_verification_report_sha256: sha256(JSON.stringify(supplied)) };
+    req.manifest.transfer = { manifest_sha256_before_transfer: latestHash, verified_clip_count: expected.length, local_verification_report_sha256: sha256(JSON.stringify(supplied)) };
     req.manifest.updated_at = req.manifest.transferred_at;
     await writeManifest(req.manifest);
     res.json({ ok: true, status: req.manifest.status, deleted_clip_count: expected.length, transferred_at: req.manifest.transferred_at });
@@ -811,10 +811,13 @@ const profileStatusBridge = require('./voice-profile-status').attachProfileStatu
 });
 
 profileErasure.attach(app, transferAuth);
-require('./profile-deletion').attachProfileDeletion(app, {
+const profileDeletionRequests = require('./profile-deletion').attachProfileDeletion(app, {
   dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers,
   transferAuth, profiles: profileStatusBridge.profiles, readManifest, safeSessionId
 });
+require('./profile-deletion-progress').attachDeletionProgress(app, {
+  dataDir: DATA_DIR, verifySigned, consumeTicket, transferAuth
+}, profileDeletionRequests);
 
 // Read-only customer profile discovery for the local PX Admin.
 require('./operator-profile-list').attachOperatorProfileList(app, {

@@ -85,7 +85,24 @@ function createProfileErasure({dataDir,profiles,store}){
   const all=await profiles(b.member_id),found=all.filter(x=>x.record.voice_profile_id===b.profile_id);
   if(found.length!==1||found[0].record.voice_model_id!==req.voice_model_id||found[0].record.customer_id!==b.customer_id)fail('Current profile ownership differs.');
   return {req,record:found[0].record,all};}
- async function preview(b){const {req,record,all}=await identity(b);const retained=all.filter(x=>x.record.voice_profile_id!==b.profile_id&&x.record.deletion_status!=='DELETED');
+ async function retainedProfiles(b,all){
+  const retained=[];
+  for(const entry of all){const record=entry.record;
+   if(record.voice_profile_id===b.profile_id)continue;
+   if(record.owner_member_id!==b.member_id||record.customer_id!==b.customer_id)fail('Shared profile dependency ownership differs.');
+   const withdrawn=await store.read(b.member_id,record.voice_profile_id);
+   if(!withdrawn){retained.push(entry);continue;}
+   if(withdrawn.owner_member_id!==b.member_id||withdrawn.customer_id!==b.customer_id
+      ||withdrawn.voice_profile_id!==record.voice_profile_id||withdrawn.voice_model_id!==record.voice_model_id
+      ||withdrawn.session_id!==record.session_id||!['REQUESTED','CLAIMED','PARTIAL','DELETED'].includes(withdrawn.status))
+    fail('Shared profile withdrawal identity differs.');
+   // A durable exact withdrawal ends use even when physical cleanup is partial.
+   // Counting PARTIAL as continuing permission can leave two withdrawn profiles
+   // retaining each other's shared recordings forever.
+  }
+  return retained;
+ }
+ async function preview(b){const {req,record,all}=await identity(b);const retained=await retainedProfiles(b,all);
   const roots=[];
   if(req.profile_origin!=='EXISTING_OWNER_TEST'){
    const sharedRaw=retained.some(x=>x.record.session_id===req.session_id&&x.record.profile_origin!=='EXISTING_OWNER_TEST');
