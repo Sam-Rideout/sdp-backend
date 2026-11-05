@@ -1,12 +1,12 @@
 {
-  "schema_version": "PX-TIER1-CAPTURE-PROMPTS-1.0.0",
+  "schema_version": "PX-TIER2-CAPTURE-PROMPTS-1.0.0",
   "prompts_approved": true,
-  "consent_version": "customer-voice-capture-2026-10-19-v3",
-  "consent_notice": "Project X uses your own voice recordings to train an AI singing voice model, certify your voice profile, and create songs you request. You must be 18 or older and signed in to your own account. Choose one required retention option below. Development use is optional and does not extend retention. If you choose deletion after this order, active voice data is due for deletion within 7 calendar days after the order is complete. After local transfer is verified, transferred audio is deleted from Render's active storage. Snapshot and backup copies may remain for an unknown period; the seven-day active-storage deadline does not confirm removal of those copies. We save your selected recording device, microphone and listening setup with each take, plus available browser microphone information such as the microphone name, sample rate and audio processing settings. We use this linked information for quality review and support under your chosen retention option; persistent device IDs are not collected. Read the full consent document before starting. Project X automatically selects suitable pitch settings for your voice. Submitting your recordings for training approves your saved Sections 1–8 takes; the optional personal message in Section 9 is excluded from training.",
+  "consent_version": "PX-VOICE-CONSENT-1.0",
+  "consent_notice": "Project X uses your own recordings to create a Tier 2 AI singing voice profile for your current song order. You must be 18 or older and signed in to your own account. Choose deletion after this order or renewable 90-day storage for future purchases. We email you three calendar days before the deletion deadline and, if you have not renewed, send a last-chance email one day before deletion. Both emails link directly to the consent form. Re-sign before that deadline to keep the same recordings, profile, calibration and linked information for a fresh 90 days from re-signing, without re-recording or retraining. Without renewal, the profile becomes unavailable and its voice data is scheduled for active deletion. Improvement use is a separate optional choice and does not extend storage. Read the full V1.0 terms below, including support, setup information and backup limits. The optional spoken message is excluded from training.",
   "consent_choices": {
-    "delete_after_order": "I agree to record my own voice and use it for AI voice-model training, certification, and my current song order. I choose deletion of my recordings, derived working audio, voice profile, and linked recording-setup information from active storage within 7 calendar days after this order is complete. This deadline does not apply to snapshots or backups; their permanent deletion timing is not confirmed.",
-    "future_purchases": "I agree to record my own voice and use it for AI voice-model training, certification, and my current song order. I choose to keep my recordings, voice profile, and linked recording-setup information for future song purchases until I withdraw permission or request deletion.",
-    "development_use": "Optional: I allow my recordings, voice profile, and recording-setup information to be used for internal product development and testing while retained under my chosen option. This does not extend retention or authorize public release, and it does not affect my current order."
+    "delete_after_order": "I permit recording, Tier 2 voice-model training and use for my current order. I choose active deletion of current-order recordings, the voice profile and working files after the seven-calendar-day support period following email delivery, subject to resolving an issue reported during that period. Backup limits apply.",
+    "future_purchases": "I permit recording, Tier 2 voice-model training and use for my current order. Keep my verified recordings, voice profile, calibration and linked information for 90 calendar days from consent. Email me a direct consent-renewal link three days before the deadline and a last-chance reminder one day before deletion if I have not renewed. If I re-sign before expiry, preserve the existing profile for a fresh 90 days from re-signing. Without renewal, schedule its voice data for active deletion. Backup limits apply.",
+    "development_use": "Optional: I allow unpaid internal development, testing and evaluation while my profile has active storage permission. This choice does not extend storage or authorize public release or general-purpose AI training. I choose separately again when renewing storage."
   },
   "consent_document_path": "/consent",
   "sections": [
@@ -58,5 +58,7 @@
   "customer_capture_scope": "REGISTERED_CUSTOMERS",
   "customer_test_account_email": "sam.rideout.me@gmail.com",
   "customer_intake_release_approved": true,
-  "recording_setup_enabled": true
+  "recording_setup_enabled": true,
+  "training_tier": "02",
+  "capture_protocol_id": "PX-TIER2-GUIDED-CAPTURE-1.0"
 }

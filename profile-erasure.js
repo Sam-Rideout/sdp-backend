@@ -10,7 +10,7 @@ function createProfileErasure({dataDir,profiles,store}){
  const jobFile=id=>{if(!/^[a-f0-9-]{36}$/.test(id||''))fail('Invalid erasure request ID.',400);return path.join(jobDir,id+'.json');};
  async function read(p){try{return JSON.parse(await fsp.readFile(p,'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}}
  async function save(p,b){await fsp.mkdir(path.dirname(p),{recursive:true,mode:0o700});const t=p+'.'+crypto.randomUUID()+'.tmp';try{const f=await fsp.open(t,'wx',0o600);try{await f.writeFile(JSON.stringify(b,null,2));await f.sync();}finally{await f.close();}await fsp.rename(t,p);}finally{await fsp.unlink(t).catch(e=>{if(e.code!=='ENOENT')throw e;});}}
- function middleware(req,res,next){if(req.path==='/health'||req.path.startsWith('/api/transfer/profile-erasure/')||req.path==='/api/transfer/profile-deletions'||req.path.startsWith('/api/transfer/profile-deletions/'))return next();
+ function middleware(req,res,next){if(req.path==='/health'||req.path==='/profile-consent'||req.path.startsWith('/profile-consent-assets/')||req.path==='/consent'||req.path.startsWith('/api/profile-consent/')||req.path.startsWith('/api/transfer/profile-consent/')||req.path.startsWith('/api/transfer/profile-erasure/')||req.path==='/api/transfer/profile-deletions'||req.path.startsWith('/api/transfer/profile-deletions/'))return next();
   if(fs.existsSync(hold))return res.status(503).json({error:'Voice-data maintenance is in progress. Please try again later.'});
   active++;res.once('finish',()=>active--);next();}
  async function safe(relative){if(typeof relative!=='string'||relative.includes('\\')||relative.split('/').some(v=>!v||v==='.'||v==='..'))fail('Invalid managed audio path.');

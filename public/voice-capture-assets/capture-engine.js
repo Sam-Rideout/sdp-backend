@@ -356,7 +356,7 @@ async function initialize() {
         ? {pilot_consent:{accepted:true,version:config.pilot_consent_version,understood:$('pilotUnderstood').checked}}
         : {consent:{accepted:true,version:config.consent_version,retention_choice:selectedRetention,development_use:$('developmentUse').checked,adult_confirmed:$('ageOwnVoice').checked,own_voice_confirmed:$('ageOwnVoice').checked}};
       if(!pilotMode&&config.recording_setup_enabled===true&&config.training_source!=='SUPPLIED_RECORDING')consentBody.recording_setup=window.PXGetSessionRecordingSetup?.();
-      try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify(consentBody)});await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
+      try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify(consentBody)});if(!pilotMode&&data.session.consent?.retention_choice==='FUTURE_PURCHASES')window.PXShowConsentReminder(data.session.consent.storage_expires_at,'signed');await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
       catch(error){setStatus(error.message);}finally{guidedCreating=false;syncConsentControls();guidedUpdate();}
     });
     const ownedSessions=await refreshSessions();

@@ -12,13 +12,14 @@ function validateAuthority(b,manifest,profile,policy,now=Date.now()){
  if(!consent||consent.accepted!==true||consent.retention_choice!=='DELETE_AFTER_ORDER'||consent.version!==b.consent_version)fail('This consent does not authorize after-order deletion.');
  const rules=policy.consent_rules.filter(r=>r.version===consent.version&&r.choice_text_sha256===hash(consent.choice_text?.retention));
  if(rules.length!==1||![3,7].includes(rules[0].days)||rules[0].days!==b.accepted_days)fail('Accepted retention wording differs.');
+ if(rules[0].clock_basis==='VERIFIED_EMAIL_DELIVERY'&&(b.clock_basis!=='VERIFIED_EMAIL_DELIVERY'||!/^[a-f0-9]{64}$/.test(b.delivery_evidence_sha256||'')))fail('V1.0 retention requires verified email-delivery evidence.');
  const start=Date.parse(b.completed_at),due=Date.parse(b.due_at),accepted=Date.parse(consent.accepted_at);
  const lead=policy.cleanup_lead_seconds===undefined?3600:policy.cleanup_lead_seconds;
  if(!Number.isInteger(lead)||lead<0||lead>3600)fail('Invalid retention cleanup lead time.');
  if(!Number.isFinite(start)||!Number.isFinite(due)||!Number.isFinite(accepted)||start<accepted||due>now+lead*1000||due<=start)fail('Retention cleanup window is not due or is invalid.');
  const a=localParts(start),z=localParts(due),expected=new Date(Date.UTC(a.year,a.month-1,a.day+b.accepted_days));
  if(z.year!==expected.getUTCFullYear()||z.month!==expected.getUTCMonth()+1||z.day!==expected.getUTCDate()||z.hour!==a.hour||z.minute!==a.minute||z.second!==a.second||Math.abs((due-start)/3600000-b.accepted_days*24)>1.01)fail('Retention deadline does not match accepted calendar days.');
- return {basis:'ACCEPTED_DELETE_AFTER_ORDER',order_id:b.order_id,completed_at:b.completed_at,due_at:b.due_at,accepted_days:b.accepted_days,consent_version:consent.version,choice_text_sha256:rules[0].choice_text_sha256,order_evidence_sha256:b.order_evidence_sha256};
+ return {...(rules[0].clock_basis?{clock_basis:rules[0].clock_basis,delivery_evidence_sha256:b.delivery_evidence_sha256}:{}),basis:'ACCEPTED_DELETE_AFTER_ORDER',order_id:b.order_id,completed_at:b.completed_at,due_at:b.due_at,accepted_days:b.accepted_days,consent_version:consent.version,choice_text_sha256:rules[0].choice_text_sha256,order_evidence_sha256:b.order_evidence_sha256};
 }
 function attachRetentionDeletion(app,c,store,policy){
  app.get('/api/transfer/profile-deletions/capabilities',c.transferAuth,(req,res)=>res.json({ok:true,protocol:'PX-AUTOMATIC-DELETION-1.0',enabled:policy.enabled===true,consent_rules:policy.consent_rules,cleanup_lead_seconds:policy.cleanup_lead_seconds??3600}));

@@ -15,7 +15,10 @@ function attachTransferQueue(app, { sessionDir, readManifest, safeSessionId, tra
         try { manifest = await readManifest(id); }
         catch (error) { if (error.code === 'ENOENT') continue; throw error; }
         if (manifest.session_id !== id) throw new Error('Session directory identity mismatch.');
-        if (manifest.status === 'READY_FOR_TRANSFER') sessions.push({session_id:id});
+        if (manifest.status === 'READY_FOR_TRANSFER'){
+          if(manifest.program==='CUSTOMER'){try{require('./profile-contract').manifest(manifest,manifest.owner_member_id);}catch{continue;}}
+          sessions.push({session_id:id});
+        }
         if (sessions.length === 100) { cursor = id; break; }
       }
       res.json({sessions, next_cursor:cursor});

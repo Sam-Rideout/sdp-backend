@@ -1,0 +1,21 @@
+{
+  "schema_version": "PX-TIER2-PROFILE-CONTRACT-1.0",
+  "training_tier": "02",
+  "capture_schema": "PX-TIER2-CAPTURE-SESSION-1.0.0",
+  "capture_protocol_id": "PX-TIER2-GUIDED-CAPTURE-1.0",
+  "capture_protocol_sha256": "1fd842b6ebc18a8cdceef2657c60af3b9c603b71b3fff3a8e936478e3b1f0c9c",
+  "consent_version": "PX-VOICE-CONSENT-1.0",
+  "consent_notice": "Project X uses your own recordings to create a Tier 2 AI singing voice profile for your current song order. You must be 18 or older and signed in to your own account. Choose deletion after this order or renewable 90-day storage for future purchases. We email you three calendar days before the deletion deadline and, if you have not renewed, send a last-chance email one day before deletion. Both emails link directly to the consent form. Re-sign before that deadline to keep the same recordings, profile, calibration and linked information for a fresh 90 days from re-signing, without re-recording or retraining. Without renewal, the profile becomes unavailable and its voice data is scheduled for active deletion. Improvement use is a separate optional choice and does not extend storage. Read the full V1.0 terms below, including support, setup information and backup limits. The optional spoken message is excluded from training.",
+  "consent_choices": {
+    "delete_after_order": "I permit recording, Tier 2 voice-model training and use for my current order. I choose active deletion of current-order recordings, the voice profile and working files after the seven-calendar-day support period following email delivery, subject to resolving an issue reported during that period. Backup limits apply.",
+    "future_purchases": "I permit recording, Tier 2 voice-model training and use for my current order. Keep my verified recordings, voice profile, calibration and linked information for 90 calendar days from consent. Email me a direct consent-renewal link three days before the deadline and a last-chance reminder one day before deletion if I have not renewed. If I re-sign before expiry, preserve the existing profile for a fresh 90 days from re-signing. Without renewal, schedule its voice data for active deletion. Backup limits apply.",
+    "development_use": "Optional: I allow unpaid internal development, testing and evaluation while my profile has active storage permission. This choice does not extend storage or authorize public release or general-purpose AI training. I choose separately again when renewing storage."
+  },
+  "eligibility_notice": "I am 18 or older and am recording my own voice.",
+  "consent_document_sha256": "d31568c63b1edecd068e9983de88a96771dba1cb26c9fda1f6e247d0964c495f",
+  "consent_document_version": "PX-VOICE-CONSENT-1.0",
+  "profile_storage_days": 90,
+  "profile_reminder_days": 3,
+  "business_timezone": "America/Halifax",
+  "profile_final_reminder_days": 1
+}

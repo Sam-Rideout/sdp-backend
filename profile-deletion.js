@@ -106,7 +106,8 @@ function createProfileDeletionStore(dataDir){
    finally{await fs.unlink(tmp).catch(e=>{if(e.code!=='ENOENT')throw e;});}return next;});
  }
  const request=(member,profile,authority=null)=>exclusive(member,()=>requestUnlocked(member,profile,authority));
- return {read,list,view,request,assertPublishable,pending,exclusive,setStatus};
+ const requestChecked=(member,profile,check)=>exclusive(member,async()=>requestUnlocked(member,profile,await check()));
+ return {read,list,view,request,requestChecked,assertPublishable,pending,exclusive,setStatus};
 }
 function attachProfileDeletion(app,c){
  const store=createProfileDeletionStore(c.dataDir);

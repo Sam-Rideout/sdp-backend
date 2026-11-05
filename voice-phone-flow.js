@@ -14,11 +14,12 @@ function captureEvidence(manifest){
 }
 function approvePhoneFinish(manifest,body,member,userAgent=''){
  if(manifest.program!=='CUSTOMER')return;
+ require('./profile-contract').manifest(manifest,member);
  if(body?.start_training!==true||manifest.owner_member_id!==member||manifest.consent?.adult_confirmed!==true||manifest.consent?.own_voice_confirmed!==true)throw new Error('Confirm Finish and Start Training for your own customer session.');
  const evidence=captureEvidence(manifest);
  manifest.phone_training={schema_version:'PX-PHONE-TRAINING-REQUEST-1.0',accepted:true,member_id:member,session_id:manifest.session_id,consent_version:manifest.consent.version,source_clips:evidence.clips,source_clips_sha256:evidence.sha256,accepted_at:new Date().toISOString(),test_context:{run_type:manifest.capture_scope==='LINKED_CUSTOMERS'?'CUSTOMER_TRAINING':'PHONE_SEQUENCE_ACCOUNT_TEST',requested_device:manifest.training_source==='SUPPLIED_RECORDING'?'SUPPLIED_RECORDING':'BROWSER',browser_user_agent:String(userAgent).slice(0,500)}};
 }
-function eligible(manifest){return manifest.program==='CUSTOMER'&&manifest.status==='TRANSFERRED_AUDIO_DELETED'&&manifest.phone_training?.accepted===true&&manifest.phone_training.member_id===manifest.owner_member_id&&manifest.phone_training.session_id===manifest.session_id&&captureEvidence(manifest).sha256===manifest.phone_training.source_clips_sha256;}
+function eligible(manifest){try{require('./profile-contract').manifest(manifest,manifest.owner_member_id);}catch{return false;}return manifest.program==='CUSTOMER'&&manifest.status==='TRANSFERRED_AUDIO_DELETED'&&manifest.phone_training?.accepted===true&&manifest.phone_training.member_id===manifest.owner_member_id&&manifest.phone_training.session_id===manifest.session_id&&captureEvidence(manifest).sha256===manifest.phone_training.source_clips_sha256;}
 function attachPhoneFlow(app,c){
  const root=path.join(c.dataDir,'phone-training');
  const locks=new Set();

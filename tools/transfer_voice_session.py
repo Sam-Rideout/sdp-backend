@@ -182,6 +182,9 @@ def transfer(base_url: str, session_id: str, destination: Path, token: str, ffmp
     if program == "LIMITED_HELPER_PILOT":
         output_dir = destination / "Pilot_Testers" / profile_id / session_id
     elif program == "CUSTOMER":
+        sys.path.insert(0,str(destination.parent / 'Services' / 'PX_Admin'))
+        from px_profile_contract import envelope as verify_profile_contract
+        verify_profile_contract(envelope,session_id,root=destination.parent,statuses=('READY_FOR_TRANSFER',))
         output_dir = destination / profile_id / session_id
     else:
         raise RuntimeError("The session has an unknown program label; no files were written.")

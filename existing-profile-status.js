@@ -31,6 +31,7 @@ function validateExisting(record,manifest){
 function attachExistingProfileStatus(app,c,catalog){
  app.post('/api/transfer/existing-voice-profiles',c.transferAuth,async(req,res,next)=>{try{
   const b=req.body||{};
+  if(b.status!=='REVOKED')return res.status(409).json({error:'Legacy model linking is retired. Create a new Tier 2 profile with its own account and consent.'});
   if(typeof b.certificate_json!=='string'||Buffer.byteLength(b.certificate_json)>16384
     ||hash(Buffer.from(b.certificate_json))!==b.certification_sha256
     ||b.certification_id!=='PXCERT-'+String(b.certification_sha256).slice(0,32).toUpperCase()){

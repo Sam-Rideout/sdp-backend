@@ -30,6 +30,7 @@ const DATA_DIR = path.resolve(process.env.VOICE_DATA_DIR ||
 const SESSION_DIR = path.join(DATA_DIR, 'sessions');
 const REPLAY_DIR = path.join(DATA_DIR, 'used-handoff-tickets');
 const customerIdentities = require('./customer-registration').createIdentityStore(DATA_DIR);
+const profileContract = require('./profile-contract');
 const profileErasure = require('./profile-erasure').createProfileErasure({
   dataDir: DATA_DIR, profiles: member => profileStatusBridge.profiles(member),
   store: require('./profile-deletion').createProfileDeletionStore(DATA_DIR)
@@ -262,6 +263,7 @@ async function ownedManifest(req, res, next) {
     if (manifest.owner_member_id !== req.memberId) return res.status(404).json({ error: 'Session not found.' });
     const program = manifest.program || 'CUSTOMER';
     if (program !== (req.captureProgram || captureMode())) return res.status(404).json({ error: 'Session not found.' });
+    if(req.method==='POST' && program==='CUSTOMER'){try{profileContract.manifest(manifest,req.memberId);}catch(error){return res.status(409).json({error:error.message});}}
     req.manifest = manifest;
     next();
   } catch (error) {
@@ -334,19 +336,25 @@ const upload = multer({
 });
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, application: 'Project X Tier 1 Voice Capture', stage: 'segmented capture' });
+  res.json({ ok: true, application: 'Project X Tier 2 Voice Capture', stage: 'segmented capture' });
 });
 
 app.get('/', (req, res) => res.redirect(302, '/voice-capture'));
 app.get('/voice-recording-upload', (req,res)=>res.sendFile(path.join(ROOT,'public','voice-recording-upload.html')));
 app.use('/voice-capture-assets', express.static(path.join(ROOT, 'public', 'voice-capture-assets'), { index:false, dotfiles:'deny', redirect:false }));
 app.get('/voice-capture', (req, res) => res.sendFile(path.join(ROOT, 'public', 'voice-capture.html')));
-app.get('/consent', (req, res) => res.sendFile(path.join(ROOT, 'public', 'consent.html')));
+app.get('/consent', (req,res)=>{
+  const version=req.query.version;
+  if(version!==undefined && (typeof version!=='string'||!/^[a-f0-9]{64}$/.test(version)))return res.status(400).send('Invalid consent document reference.');
+  const file=version?path.join(ROOT,'public','consent-archive',version+'.html'):path.join(ROOT,'public','consent.html');
+  res.set('Cache-Control','no-store');res.sendFile(file);
+});
 app.get('/pilot-consent', (req, res) => res.sendFile(path.join(ROOT, 'public', 'pilot-consent.html')));
 
 app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
   try {
     const config = JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'));
+    if (captureMode() === 'CUSTOMER') profileContract.config(config);
     const promptsReady = config.prompts_approved === true && config.sections.length === SECTION_COUNT &&
       config.sections.every(section => section.title && section.instructions);
     const choicesReady = ['delete_after_order', 'future_purchases', 'development_use']
@@ -383,6 +391,9 @@ app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
     if (mode === 'INVALID') return res.json({ capture_mode: 'INVALID', capture_enabled: false, prompts_ready: false, sections: [] });
     res.json({
       capture_mode: 'CUSTOMER',
+      ...profileContract.fields(),
+      consent_document_sha256: profileContract.policy.consent_document_sha256,
+      consent_document_version: profileContract.policy.consent_document_version,
       capture_scope: config.customer_capture_scope,
       customer_test_access: customerTestAccess(req, config),
       customer_capture_access: customerTestAccess(req, config) || require('./customer-capture-access').linkedCustomerAccess(req, config),
@@ -443,7 +454,7 @@ app.get('/api/sessions', authenticatedMember, requireCaptureAccess, async (req, 
       if (!entry.isDirectory() || !safeSessionId(entry.name)) continue;
       try {
         const manifest = await readManifest(entry.name);
-        if (manifest.status !== 'DELETE_PENDING' && manifest.owner_member_id === req.memberId && (manifest.program || 'CUSTOMER') === req.captureProgram) sessions.push(publicManifest(manifest));
+        if (manifest.status !== 'DELETE_PENDING' && manifest.owner_member_id === req.memberId && (manifest.program || 'CUSTOMER') === req.captureProgram && (req.captureProgram !== 'CUSTOMER' || manifest.contract_version === profileContract.policy.schema_version)) sessions.push(publicManifest(manifest));
       } catch { /* Ignore incomplete/unreadable folders; never expose them. */ }
     }
     sessions.sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -501,6 +512,9 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
       await writeManifest(manifest);
       return res.status(201).json({ session: publicManifest(manifest) });
     }
+    profileContract.config(config);
+    const customerIdentity = await customerIdentities.forTransfer(req.memberId);
+    if (!customerIdentity || profileContract.email(customerIdentity.email) !== req.memberEmail) return res.status(403).json({error:'Reopen Voice Profile Progress from your signed-in Wix account to supply its verified email.'});
     const sourceMode = req.body?.training_source || 'GUIDED_RECORDING';
     if (!['GUIDED_RECORDING', 'SUPPLIED_RECORDING'].includes(sourceMode) || (sourceMode === 'SUPPLIED_RECORDING' && config.supplied_recordings_enabled !== true)) return res.status(400).json({error:'This recording source is not enabled.'});
     const consentVersion = process.env.VOICE_CONSENT_VERSION || config.consent_version;
@@ -535,7 +549,7 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
       if (!entry.isDirectory() || !safeSessionId(entry.name)) continue;
       try {
         const existing = await readManifest(entry.name);
-        if (existing.owner_member_id === req.memberId && (existing.program || 'CUSTOMER') === req.captureProgram && existing.status === 'RECORDING') {
+        if (existing.owner_member_id === req.memberId && (existing.program || 'CUSTOMER') === req.captureProgram && existing.status === 'RECORDING' && existing.contract_version === profileContract.policy.schema_version) {
           return res.status(409).json({ error: 'Resume your open recording session before starting another.' });
         }
       } catch { /* An incomplete session folder is not an authorized session. */ }
@@ -549,7 +563,9 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
     };
     const noticeHash = sha256(JSON.stringify(consentEvidence));
     const manifest = {
-      schema_version: 'PX-TIER1-CAPTURE-SESSION-1.0.0',
+      schema_version: 'PX-TIER2-CAPTURE-SESSION-1.0.0',
+      ...profileContract.fields(),
+      customer_identity: customerIdentity,
       program: 'CUSTOMER',
       training_source: sourceMode,
       capture_scope: config.customer_capture_scope,
@@ -576,6 +592,9 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
           development_use: choiceLabels.development_use
         },
         consent_evidence_sha256: noticeHash,
+        consent_document_sha256: profileContract.policy.consent_document_sha256,
+        consent_document_version: profileContract.policy.consent_document_version,
+        ...(submittedConsent.retention_choice === 'FUTURE_PURCHASES' ? {storage_expires_at: require('./profile-consent').addDays(now,90),storage_reminder_at:require('./profile-consent').addDays(require('./profile-consent').addDays(now,90),-3)} : {}),
         accepted_at: now
       },
       sections: Object.fromEntries(Array.from({ length: SECTION_COUNT }, (_, index) => [String(index + 1), { takes: [] }]))
@@ -759,7 +778,7 @@ require('./voice-transfer-queue').attachTransferQueue(app, {
 // PC-only transfer endpoints use a separate secret and do not expose member audio in browser APIs.
 app.get('/api/transfer/sessions/:sessionId', transferAuth, transferManifest, async (req, res, next) => {
   try {
-    const customer_identity = await customerIdentities.forTransfer(req.manifest.owner_member_id);
+    const customer_identity = req.manifest.customer_identity || await customerIdentities.forTransfer(req.manifest.owner_member_id);
     res.json({ profile_id: req.manifest.owner_member_id, manifest: publicManifest(req.manifest), manifest_sha256: sha256(req.rawManifest), customer_identity });
   } catch (error) { next(error); }
 });
@@ -815,6 +834,13 @@ const profileDeletionRequests = require('./profile-deletion').attachProfileDelet
   dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers,
   transferAuth, profiles: profileStatusBridge.profiles, readManifest, safeSessionId
 });
+const profileConsentService = require('./profile-consent').attachProfileConsent(app, {
+  dataDir: DATA_DIR, store: profileDeletionRequests, profiles: profileStatusBridge.profiles,
+  secret: process.env.WIX_HANDOFF_SECRET, authenticatedMember, requireSameOrigin, transferAuth
+});
+profileStatusBridge.setConsentView(profileConsentService.state);
+app.get('/profile-consent',(req,res)=>{res.set('Cache-Control','no-store');res.set('Referrer-Policy','no-referrer');res.sendFile(path.join(ROOT,'public/profile-consent.html'));});
+
 require('./profile-deletion-progress').attachDeletionProgress(app, {
   dataDir: DATA_DIR, verifySigned, consumeTicket, transferAuth
 }, profileDeletionRequests);

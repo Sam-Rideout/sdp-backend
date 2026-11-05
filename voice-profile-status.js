@@ -10,6 +10,7 @@ const hex = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const text = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
 const { publicPreparation } = require('./voice-preparation');
 const recordingSetup = require('./recording-setup');
+const profileContract = require('./profile-contract');
 const STATES = new Set(['PROCESSING', 'READY', 'FAILED', 'REVOKED']);
 
 function attachProfileStatus(app, context) {
@@ -40,6 +41,7 @@ function attachProfileStatus(app, context) {
       || manifest.status !== 'TRANSFERRED_AUDIO_DELETED') {
       throw new Error('Profile status does not match verified customer transfer evidence.');
     }
+    if (record.status === 'READY') profileContract.binding(record,manifest);
     if (record.status === 'READY' && (!text(record.voice_profile_id)
       || !text(record.voice_model_id) || !text(record.customer_id)
       || !hex(record.model_sha256) || !hex(record.index_sha256)
@@ -75,9 +77,11 @@ function attachProfileStatus(app, context) {
     if (!sessions.length) return { status: 'MISSING', preparation: null, checked_at: new Date().toISOString() };
     const latest = sessionId === undefined ? sessions[0] : sessions.find(m => m.session_id === sessionId);
     if (!latest) return {status:'MISSING', preparation:null, checked_at:new Date().toISOString()};
+    if(latest.contract_version!==profileContract.policy.schema_version)return {status:'MISSING',requires_new_capture:true,preparation:null,checked_at:new Date().toISOString()};
     const record = await catalog.recordFor(member, latest);
     if (record && record.session_id === latest.session_id) {
       validateRecord(record, latest);
+      if(record.consent_expired)return {status:'FAILED',consent_expired:true,consent_expires_at:record.consent_expires_at,preparation:null,checked_at:new Date().toISOString()};
       const result = { status: record.status, preparation: includeReadyEvidence ? null : await preparation(latest, record.status, record), checked_at: new Date().toISOString() };
       return includeReadyEvidence && record.status === 'READY'
         ? { ...result, profile: record } : result;
@@ -94,6 +98,7 @@ function attachProfileStatus(app, context) {
     // capture must not hide another session that is still being prepared.
     const activePhases = new Set(['QUEUED', 'PREPARING', 'TRAINING', 'KEY_SELECTION', 'CERTIFYING', 'UNKNOWN']);
     for (const manifest of await ownedSessions(member)) {
+      if(manifest.contract_version!==profileContract.policy.schema_version)continue;
       if (!['READY_FOR_TRANSFER', 'TRANSFERRED_AUDIO_DELETED'].includes(manifest.status)) continue;
       const record = await catalog.recordFor(member, manifest);
       if (record && record.status !== 'PROCESSING') continue;
@@ -173,7 +178,10 @@ function attachProfileStatus(app, context) {
           return res.status(409).json({ error: 'A verified customer transfer is required.' });
         }
         const body = req.body || {};
+        let binding={};
+        if(body.status==='READY'){try{binding=profileContract.certificate(body,manifest);}catch(error){return res.status(400).json({error:error.message});}}
         const record = {
+          ...binding,
           schema_version: 'PX-VOICE-PROFILE-STATUS-1.0',
           owner_member_id: manifest.owner_member_id, session_id: manifest.session_id,
           status: body.status, voice_profile_id: body.voice_profile_id,
@@ -188,6 +196,17 @@ function attachProfileStatus(app, context) {
         try { validateRecord(record, manifest); }
         catch { return res.status(400).json({ error: 'Invalid profile status or missing certified-model evidence.' }); }
         // Every publication stays bound to its verified owned session.
+        if(body.status==='READY'){
+          const directory=path.join(dataDir,'voice-profile-certificates',hash(manifest.owner_member_id));
+          await fsp.mkdir(directory,{recursive:true,mode:0o700});
+          const file=path.join(directory,body.certification_sha256+'.json');
+          const temp=file+'.'+crypto.randomUUID()+'.tmp';
+          try{
+            const stream=await fsp.open(temp,'wx',0o600);
+            try{await stream.writeFile(body.certificate_json);await stream.sync();}finally{await stream.close();}
+            try{await fsp.link(temp,file);}catch(error){if(error.code!=='EEXIST')throw error;if(await fsp.readFile(file,'utf8')!==body.certificate_json)throw new Error('Stored certificate bytes differ.');}
+          }finally{await fsp.unlink(temp).catch(error=>{if(error.code!=='ENOENT')throw error;});}
+        }
         await catalog.publish(manifest.owner_member_id, manifest, record);
         res.json({ ok: true, status: record.status });
       } catch (error) {
@@ -196,7 +215,7 @@ function attachProfileStatus(app, context) {
       }
     });
   require('./existing-profile-status').attachExistingProfileStatus(app, context, catalog);
-  return {snapshot, readyProfile:catalog.readyProfile,
+  return {snapshot,setConsentView:catalog.setConsentView, readyProfile:catalog.readyProfile,
     selectableProfile:catalog.selectableProfile, profiles:catalog.records};
 }
 

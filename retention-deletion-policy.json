@@ -15,8 +15,25 @@
       "version": "customer-voice-capture-2026-10-19-v3",
       "days": 7,
       "choice_text_sha256": "fcbba4b2d32d933c3980de42e4751b2d31e81b13fba9ea175f5055af8c742e74",
+      "status": "LEGACY_ACCEPTED_WORDING"
+    },
+    {
+      "version": "PX-VOICE-CONSENT-1.0",
+      "days": 7,
+      "clock_basis": "VERIFIED_EMAIL_DELIVERY",
+      "choice_text_sha256": "da0a78302ac039bbe4a4f037b24eed8e8bd241105744b0deb44dd6d9d5c11863",
       "status": "APPROVED_FOR_NEW_SESSION_PUBLICATION"
     }
   ],
-  "cleanup_lead_seconds": 3600
+  "cleanup_lead_seconds": 3600,
+  "renewable_profile_storage": {
+    "consent_version": "PX-VOICE-CONSENT-1.0",
+    "days": 90,
+    "reminder_days": [
+      3,
+      1
+    ],
+    "business_timezone": "America/Halifax",
+    "renewal_basis": "NEW_90_DAYS_FROM_EXPLICIT_RESIGNING"
+  }
 }
