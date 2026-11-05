@@ -8,12 +8,24 @@ const hash = text => crypto.createHash('sha256').update(text).digest('hex');
 const FIELDS = ['customer_id', 'session_id', 'voice_profile_id', 'voice_model_id',
   'model_sha256', 'index_sha256', 'certification_id', 'certification_sha256'];
 
+function consentSessionMatches(record, profile) {
+  if (record.consent_session_id === profile.consent_session_id) return true;
+  // Early Tier 2 selections omitted this field. Derive it only from the
+  // same READY profile/session after every owner and certified-asset match.
+  return !Object.prototype.hasOwnProperty.call(record, 'consent_session_id')
+    && record.profile_origin === undefined && record.account_test_only === undefined
+    && profile.profile_origin === undefined && profile.account_test_only === undefined
+    && profile.status === 'READY'
+    && profile.contract_version === 'PX-TIER2-PROFILE-CONTRACT-1.0'
+    && profile.consent_session_id === record.session_id;
+}
+
 function matchesProfile(record, profile) {
   return Boolean(!require('./song-products').isOriginal(record) && profile && record.owner_member_id === profile.owner_member_id
     && FIELDS.every(key => record[key] === profile[key])
     && record.profile_origin === profile.profile_origin
     && record.account_test_only === profile.account_test_only
-    && record.consent_session_id === profile.consent_session_id);
+    && consentSessionMatches(record, profile));
 }
 
 function validateRecord(record, filename) {
@@ -34,7 +46,8 @@ function validateRecord(record, filename) {
     || record.status !== 'SELECTED'
     || (record.profile_origin !== undefined && (record.profile_origin !== 'EXISTING_OWNER_TEST'
       || record.account_test_only !== true || record.consent_session_id !== record.session_id))
-    || (record.profile_origin === undefined && (record.account_test_only !== undefined || record.consent_session_id !== undefined))
+    || (record.profile_origin === undefined && (record.account_test_only !== undefined ||
+      (record.consent_session_id !== undefined && record.consent_session_id !== record.session_id)))
     || typeof record.owner_member_id !== 'string'
     || record.owner_member_id.length < 3 || record.owner_member_id.length > 200
     || !/^[a-f0-9]{48}$/.test(record.request_id)

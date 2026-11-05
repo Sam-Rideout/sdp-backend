@@ -77,7 +77,7 @@ function attachSongSelection(app, context) {
           || existing.certification_sha256 !== profile.certification_sha256
           || existing.profile_origin !== profile.profile_origin
           || existing.account_test_only !== profile.account_test_only
-          || existing.consent_session_id !== profile.consent_session_id) {
+          || !require('./song-selection-transfer').matchesProfile(existing, profile)) {
           return res.status(409).json({ error: 'Selection request changed. Start a new selection.' });
         }
         return res.json({ ok: true, status: 'SELECTED', selection_id: existing.selection_id, px_song_id: existing.px_song_id, voice_profile_id: existing.voice_profile_id, product_type:product });
@@ -94,6 +94,9 @@ function attachSongSelection(app, context) {
         certification_id: profile.certification_id, certification_sha256: profile.certification_sha256,
         selected_at: new Date().toISOString()
       };
+      if (profile.profile_origin === undefined && profile.consent_session_id === profile.session_id) {
+        record.consent_session_id = profile.consent_session_id;
+      }
       if (profile.profile_origin === 'EXISTING_OWNER_TEST') {
         record.profile_origin = profile.profile_origin;
         record.account_test_only = true;
