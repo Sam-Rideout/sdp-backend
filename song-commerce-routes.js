@@ -2,7 +2,15 @@
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
 const {createStore,demand}=require('./song-commerce');
 function attach(app,c) {
-  if(c.config?.enabled!==true)return null;
+  if(c.config?.enabled!==true) {
+    const unavailable=(req,res)=>res.set('Cache-Control','no-store').status(503).json({
+      ok:false,code:'SONG_REVIEW_UNAVAILABLE',
+      error:'Song review and checkout are not available yet. Please return to My Orders.'
+    });
+    app.post('/api/wix/song-commerce',unavailable);
+    app.post('/api/wix/song-commerce-event',unavailable);
+    return null;
+  }
   const folder=path.join(c.dataDir,'song-commerce'),audio=path.join(folder,'preview-audio');
   const store=createStore(folder,c.config);
   const hex=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
