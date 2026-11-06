@@ -917,11 +917,22 @@ const birthdayMessageBridge = require('./birthday-message').attachBirthdayMessag
   maxStoreBytes: MAX_STORE_BYTES
 });
 
+// New customer commerce is disabled until its reviewed configuration is enabled.
+const songCommerceConfig = require('./config/song-commerce.json');
+const songCommerceStore = require('./song-commerce-routes').attach(app, {
+  dataDir:DATA_DIR, config:songCommerceConfig, express, transferAuth, verifySigned,
+  consumeTicket, sign, directoryBytes, maxStoreBytes:MAX_STORE_BYTES, origin:'https://sdp-backend-6xt7.onrender.com'
+});
+const customerSongRequests = require('./customer-song-requests').attach(app, {
+  dataDir:DATA_DIR, config:songCommerceConfig, transferAuth,
+  freezeMessage:birthdayMessageBridge.freezeForCommit
+});
 const createSongBridge = require('./create-song').attachCreateSong(app, {
   dataDir: DATA_DIR, verifySigned, consumeTicket, transferAuth,
-  customerTestAccess, freezeMessage: birthdayMessageBridge.freezeForCommit
+  customerCommerce:customerSongRequests, customerTestAccess, freezeMessage: birthdayMessageBridge.freezeForCommit
 });
 require('./wix-orders').attachWixOrders(app, {
+  customerCommerce:customerSongRequests, songCommerce:songCommerceStore,
   dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth,
   messageSummary: birthdayMessageBridge.summaryFor, creationSummary: createSongBridge.summaryFor
 });

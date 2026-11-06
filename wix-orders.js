@@ -145,7 +145,7 @@ function attachWixOrders(app, context) {
         }
         item.can_choose_another=item.cancellation&&item.cancellation.status==='REQUESTED'?false:Boolean(item.cancellation&&['CANCELLED','TOO_LATE'].includes(item.cancellation.status))||['CANCELLED','REFUNDED','COMPLETED'].includes(item.order_status);
       }
-      const creationAllowed=songAccess.memberAllowed(claims.sub);
+      const creationAllowed=context.customerCommerce?.memberAllowed(claims.sub)===true||songAccess.memberAllowed(claims.sub);
       let activeSong=true;
       let admissionMessage=require('./account-song-limit').MESSAGE;
       try { activeSong=await require('./account-song-limit').createAccountSongGate(context.dataDir).findActive(claims.sub); }
@@ -163,6 +163,18 @@ function attachWixOrders(app, context) {
           item.can_add_message=false;
           item.status_label=item.creation.state==='NEEDS_ATTENTION'?'Project X review needed':item.creation.state==='REQUESTED'?'Waiting for processing':'Preparing your order';
           item.message=item.creation.state==='NEEDS_ATTENTION'?'Your song request needs Project X review. Please do not create a duplicate request.':'Your song and message choices are committed. Processing will begin when the service is available.';
+        }
+      }
+      if(context.songCommerce){
+        const reviews=await context.songCommerce.list(claims.sub);
+        for(const item of all){
+          const reviewed=reviews.reviews.find(r=>r.selection_id===(item.selection_id||item.id));
+          if(reviewed){
+            item.review=reviewed;
+            item.review_url='https://www.sdpsongs.ca/song-review';
+            item.status_label=reviewed.payment_review_required?'Payment review needed':reviewed.state==='DELIVERED'?'Song emailed':reviewed.authorized?'Preparing delivery':'Your song is ready to review';
+            item.message=reviewed.authorized?'Your approved song is being prepared for clean MP3 delivery.':'Listen to your full watermarked preview, then approve and pay or use a song credit.';
+          }
         }
       }
       const items=all.sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)||a.id.localeCompare(b.id));
