@@ -42,7 +42,7 @@ function attach(app,c){
     names=names.filter(n=>uuid(n.slice(0,-5))&&n.endsWith('.json'));
     demand(names.length<=5000,'Customer song archive requires maintenance.',503);
     const commands=[];
-    for(const name of names){const r=await read(path.join(root,name));if(r?.mode==='CUSTOMER'&&['REQUESTED','WORKING'].includes(r.state))commands.push(r);}
+    for(const name of names){const r=await read(path.join(root,name));if(r?.mode==='CUSTOMER'&&memberAllowed(r.owner_member_id)&&['REQUESTED','WORKING'].includes(r.state))commands.push(r);}
     demand(commands.length<=100,'Customer queue requires pagination.',503);
     commands.sort((a,b)=>a.requested_at.localeCompare(b.requested_at));res.json({ok:true,commands});
   }catch(e){next(e);}});

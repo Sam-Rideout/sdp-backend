@@ -1,6 +1,6 @@
 {
   "schema_version": "PX-SONG-COMMERCE-CONFIG-1.0",
-  "enabled": false,
+  "enabled": true,
   "currency": "CAD",
   "tax_included": true,
   "plan_ids": {
@@ -8,5 +8,7 @@
     "EIGHT": "59690fc1-89ab-4f18-a477-a9d962a5c9d8"
   },
   "public_processing": false,
-  "pilot_members": []
+  "pilot_members": [
+    "29b28efa-5b13-4799-a369-6348c59c0f5e"
+  ]
 }
