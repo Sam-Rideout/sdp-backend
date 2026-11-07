@@ -4,8 +4,8 @@
   "currency": "CAD",
   "tax_included": true,
   "plan_ids": {
-    "THREE": "f99b0f6d-214b-4f51-9f4b-eefe3045c884",
-    "EIGHT": "59690fc1-89ab-4f18-a477-a9d962a5c9d8"
+    "THREE": "405432a7-d61a-407d-9daf-653c924ea832",
+    "EIGHT": "db9ed487-3258-4e95-ab0b-8b1fced84798"
   },
   "public_processing": false,
   "pilot_members": [
