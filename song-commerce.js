@@ -30,10 +30,14 @@ function publicReview(s,r) {
     tax_included:true,credits:balance(s,r.owner),approved_at:r.approved_at||'',
     authorized:!!r.authorization,payment_review_required:!!s.holds[r.owner],delivered_at:r.delivered_at||''};
 }
-function authorize(r,kind,reference) {
+function authorize(r,kind,reference,creditBalanceAfter) {
   demand(!r.authorization,'Delivery already authorized.');
   r.authorization={kind,reference,approved_preview_sha256:r.preview_sha256,
     master_sha256:r.master_sha256,at:stamp()};
+  if(kind==='CREDIT') {
+    demand(Number.isSafeInteger(creditBalanceAfter)&&creditBalanceAfter>=0,'Invalid recorded credit balance.');
+    r.authorization.credits_remaining_after_redemption=creditBalanceAfter;
+  }
   r.authorization.seal=digest({review_id:r.review_id,order_id:r.order_id,run_id:r.run_id,...r.authorization});
   r.state='AUTHORIZED';
 }
@@ -96,7 +100,9 @@ function createStore(directory, config={}) {
       if(r.authorization) {demand(r.authorization.kind===method,'This song is already approved using another method.');return publicReview(s,r);}
       if(method==='CREDIT') {
         demand(r.state==='REVIEW','Checkout is already in progress.');
-        demand(balance(s,owner)>0,'No available song credits.');r.approved_at=stamp();authorize(r,'CREDIT',key);
+        const credits=balance(s,owner);
+        demand(Number.isSafeInteger(credits)&&credits>0,'No available song credits.');
+        r.approved_at=stamp();authorize(r,'CREDIT',key,credits-1);
       } else {demand(['REVIEW','PAYMENT_PENDING'].includes(r.state),'This review cannot be approved.');r.approved_at=r.approved_at||stamp();r.state='PAYMENT_PENDING';}
       return publicReview(s,r);
     });},
