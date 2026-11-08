@@ -17,7 +17,8 @@ function attach(app,c){
     // account gate until the review and its original request both finish.
     const {reviews}=await commerce.list(owner);
     const message='You already have a song being prepared or awaiting approval, payment or delivery. Please finish that request before creating another.';
-    demand(!reviews.some(r=>r.state!=='DELIVERED'),message);
+    const blocked=()=>{const error=new Error(message);error.status=409;error.code='ACTIVE_SONG_LIMIT';throw error;};
+    if(reviews.some(r=>r.state!=='DELIVERED'))blocked();
     const names=(await fs.readdir(root)).filter(n=>n.endsWith('.json')&&uuid(n.slice(0,-5)));
     demand(names.length<=5000,'Customer song archive requires maintenance.',503);
     for(const name of names){
@@ -29,9 +30,16 @@ function attach(app,c){
         &&(r.outcome===undefined||r.state==='NEEDS_ATTENTION'&&r.outcome==='PRODUCTION_REJECTED'),
         'Customer song request status needs review.',503);
       if(r.state==='CANCELLED')continue;
+      // PC-confirmed cancellation is authoritative even when a failed commit
+      // retains its terminal QA state. Pending/TOO_LATE receipts never release it.
+      const {readCancel}=require('./wix-cancel');
+      const selectionCancellation=await readCancel(c.dataDir,owner,'SELECTION',r.selection_id);
+      const orderCancellation=/^PXO-\d{6}$/.test(r.order_id||'')
+        ? await readCancel(c.dataDir,owner,'ORDER',r.order_id) : null;
+      if(selectionCancellation?.status==='CANCELLED'||orderCancellation?.status==='CANCELLED')continue;
       // This also closes the interval between processing completion and preview
       // publication, when there may not be a commerce review record yet.
-      demand(r.state==='DONE',message);
+      if(r.state!=='DONE')blocked();
       const delivered=reviews.filter(review=>review.selection_id===r.selection_id);
       demand(delivered.length===1&&delivered[0].state==='DELIVERED'
         &&delivered[0].order_id===r.order_id&&delivered[0].run_id===r.run_id,
