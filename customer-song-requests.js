@@ -25,7 +25,8 @@ function attach(app,c){
       demand(r,'Customer song request status could not be confirmed.',503);
       if(r.owner_member_id!==owner||r.mode!=='CUSTOMER')continue;
       demand(r.schema_version==='PX-CREATE-SONG-1.0'&&name===r.selection_id+'.json'
-        &&['REQUESTED','WORKING','DONE','CANCELLED','NEEDS_ATTENTION'].includes(r.state),
+        &&['REQUESTED','WORKING','DONE','CANCELLED','NEEDS_ATTENTION'].includes(r.state)
+        &&(r.outcome===undefined||r.state==='NEEDS_ATTENTION'&&r.outcome==='PRODUCTION_REJECTED'),
         'Customer song request status needs review.',503);
       if(r.state==='CANCELLED')continue;
       // This also closes the interval between processing completion and preview

@@ -159,10 +159,21 @@ function attachWixOrders(app, context) {
         item.can_create_song=creationAllowed&&!activeSong&&item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&(originalOnlyReady||((item.birthday_message?.can_record===true||item.birthday_message?.committed===true)&&['RECORDED','SKIPPED'].includes(item.birthday_message?.choice)));
         if(item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&!creationAllowed) item.creation_message='Song creation is not enabled for this account yet. Please contact Project X.';
         if(activeSong&&item.kind==='SELECTION'&&!item.cancellation&&!item.creation&&creationAllowed) item.creation_message=admissionMessage;
-        if(item.creation && item.kind==='SELECTION'&&!item.cancellation){
+        if(item.creation&&!item.cancellation){
           item.can_add_message=false;
-          item.status_label=item.creation.state==='NEEDS_ATTENTION'?'Project X review needed':item.creation.state==='REQUESTED'?'Waiting for processing':'Preparing your order';
-          item.message=item.creation.state==='NEEDS_ATTENTION'?'Your song request needs Project X review. Please do not create a duplicate request.':'Your song and message choices are committed. Processing will begin when the service is available.';
+          if(item.creation.state==='NEEDS_ATTENTION'&&item.creation.outcome==='PRODUCTION_REJECTED'){
+            item.status_label='Song could not be completed';
+            item.message='We could not complete this song. Cancel this song request and try another song. No payment or song credit was used.';
+          }else if(item.creation.state==='NEEDS_ATTENTION'){
+            item.status_label='Request needs review';
+            item.message='We are checking this request. Please refresh My Orders later or contact Project X for help. Please do not submit another request while we check it.';
+          }else if(item.creation.state==='REQUESTED'){
+            item.status_label='Waiting for processing';
+            item.message='Your song and message choices are saved. Processing will begin when the service is available.';
+          }else{
+            item.status_label='Preparing your order';
+            item.message='Your song request is being prepared. Refresh My Orders for updates.';
+          }
         }
       }
       if(context.songCommerce){

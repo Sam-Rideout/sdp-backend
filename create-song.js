@@ -7,7 +7,7 @@ const member=s=>typeof s==='string'&&s.length>=3&&s.length<=200&&!/[\x00-\x1f\x7
 function error(message,status=409){const e=new Error(message);e.status=status;throw e;}
 async function read(p){try{return JSON.parse(await fs.readFile(p,'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}}
 async function write(p,v){await fs.mkdir(path.dirname(p),{recursive:true,mode:0o700});const tmp=p+'.'+crypto.randomUUID()+'.tmp';try{await fs.writeFile(tmp,JSON.stringify(v),{flag:'wx',mode:0o600});await fs.rename(tmp,p);}finally{await fs.unlink(tmp).catch(e=>{if(e.code!=='ENOENT')throw e;});}}
-const publicState=r=>r?{selection_id:r.selection_id,state:r.state,order_id:r.order_id||'',updated_at:r.updated_at}:null;
+const publicState=r=>r?{selection_id:r.selection_id,state:r.state,order_id:r.order_id||'',updated_at:r.updated_at,...(r.outcome?{outcome:r.outcome}:{})}:null;
 function authorized(c,now){return Boolean(c&&c.iss==='wix'&&c.aud==='project-x-orders'&&c.purpose==='create-song'&&member(c.sub)&&uuid(c.selection_id)&&typeof c.email==='string'&&c.email.length<=254&&Number.isInteger(c.iat)&&Number.isInteger(c.exp)&&c.iat<=now+60&&c.iat>=now-180&&c.exp>now&&c.exp<=now+180&&c.exp>c.iat&&/^[a-f0-9]{48}$/.test(c.jti||''));}
 function attachCreateSong(app,c){
  const root=path.join(c.dataDir,'song-commits');
@@ -116,10 +116,12 @@ function attachCreateSong(app,c){
   await lock(req.params.selectionId,async()=>{
    const b=req.body||{};const r=await owned(req.params.selectionId,b.owner_member_id);
    if(!r||!uuid(b.claim_id)||r.claim_id!==b.claim_id||!['WORKING','DONE','CANCELLED','NEEDS_ATTENTION'].includes(b.state)
-    || !(b.order_id===''||/^PXO-\d{6}$/.test(b.order_id))||!(b.run_id===''||/^PXR-\d{6}$/.test(b.run_id)))error('Invalid song receipt.');
+    || !(b.order_id===''||/^PXO-\d{6}$/.test(b.order_id))||!(b.run_id===''||/^PXR-\d{6}$/.test(b.run_id))
+    || !(b.outcome===undefined||(b.state==='NEEDS_ATTENTION'&&b.outcome==='PRODUCTION_REJECTED')))error('Invalid song receipt.');
    if((r.order_id&&r.order_id!==b.order_id)||(r.run_id&&r.run_id!==b.run_id))error('Song receipt identity changed.');
    if(['DONE','CANCELLED','NEEDS_ATTENTION'].includes(r.state)&&r.state!==b.state)error('Song commit is already terminal.');
-   r.state=b.state;r.order_id=b.order_id;r.run_id=b.run_id;r.updated_at=new Date().toISOString();await write(file(r.selection_id),r);
+   if(r.outcome&&r.outcome!==b.outcome)error('Song receipt outcome changed.');
+   r.state=b.state;r.outcome=b.outcome||r.outcome;r.order_id=b.order_id;r.run_id=b.run_id;r.updated_at=new Date().toISOString();await write(file(r.selection_id),r);
    res.json({ok:true,creation:publicState(r)});
   });
  }catch(e){next(e);}});
