@@ -15,7 +15,7 @@ function attach(app,c) {
   const store=createStore(folder,c.config);
   const memberAllowed=owner=>typeof owner==='string'&&(c.config.public_processing===true
     ||c.config.pilot_members?.includes(owner)===true);
-  const requireMember=owner=>demand(memberAllowed(owner),
+  const requireMember=async owner=>demand(memberAllowed(owner)||await store.testerKnown(owner),
     'Song review and checkout are not available yet. Please return to My Orders.',503);
   const hex=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
   const route=fn=>async(req,res,next)=>{try{res.set('Cache-Control','no-store');await fn(req,res);}catch(e){next(e);}};
@@ -28,9 +28,16 @@ function attach(app,c) {
   app.post('/api/wix/song-commerce',route(async(req,res)=>{
     const a=c.verifySigned(req.body?.ticket);
     demand(valid(a,'project-x-commerce','member-operation'),'Sign in again to continue.',401);
-    requireMember(a.sub);
     demand(await c.consumeTicket(a.jti),'Authorization already used. Retry the action.',401);
     let result;
+    if(['TESTER_PRESENT','TESTER_ACCEPT','TESTER_STATUS','TESTER_WITHDRAW'].includes(a.operation)){
+      if(a.operation==='TESTER_PRESENT')result=await store.presentTester(a.sub,a.email,a.token);
+      if(a.operation==='TESTER_ACCEPT')result=await store.acceptTester(a.sub,a.email,a);
+      if(a.operation==='TESTER_STATUS')result=await store.testerStatus(a.sub);
+      if(a.operation==='TESTER_WITHDRAW')result=await store.revokeTester({actor:a.sub,reason:'Tester withdrew online'},a.sub);
+      return res.json({ok:true,result});
+    }
+    await requireMember(a.sub);
     switch(a.operation) {
       case 'LIST':result=await store.list(a.sub);break;
       case 'GET':result=await store.get(a.sub,a.review_id);break;
@@ -55,8 +62,8 @@ function attach(app,c) {
     demand(await c.consumeTicket(a.jti),'Event authorization was already used.',401);
     let result;
     if(a.operation==='PAYMENT') result=await store.paymentEvent(a.event);
-    else if(a.operation==='PAID_CYCLE') {requireMember(a.order?.buyer?.memberId);result=await store.grantCycle(a.order);}
-    else if(a.operation==='SUBSCRIPTION_STATE') {requireMember(a.order?.buyer?.memberId);result=await store.subscriptionState(a.order);}
+    else if(a.operation==='PAID_CYCLE') {await requireMember(a.order?.buyer?.memberId);result=await store.grantCycle(a.order);}
+    else if(a.operation==='SUBSCRIPTION_STATE') {await requireMember(a.order?.buyer?.memberId);result=await store.subscriptionState(a.order);}
     else demand(false,'Unknown provider event.',400);
     res.json({ok:true,result});
   }));
@@ -82,20 +89,23 @@ function attach(app,c) {
     res.json({ok:true,preview_sha256:req.params.sha});
   }));
   app.post('/api/transfer/song-reviews',c.transferAuth,route(async(req,res)=>{
-    requireMember(req.body?.owner);
-    demand(hex(req.body?.preview_sha256),'Missing preview identity.',400);
+    await requireMember(req.body?.owner);
+    demand(hex(req.body?.preview_sha256)&&/^[a-f0-9-]{36}$/.test(req.body?.selection_id||''),'Missing preview identity.',400);
     await fs.access(path.join(audio,req.body.preview_sha256+'.mp3'));
+    const commit=JSON.parse(await fs.readFile(path.join(c.dataDir,'song-commits',req.body.selection_id+'.json'),'utf8'));
+    demand(commit.owner_member_id===req.body.owner&&commit.order_id===req.body.order_id&&commit.run_id===req.body.run_id,'Review differs from its committed request.');
+    demand(JSON.stringify(commit.promotion||null)===JSON.stringify(req.body.promotion||null),'Promotional request evidence differs.');
     res.json({ok:true,result:await store.publish(req.body)});
   }));
   app.post('/api/transfer/song-review-authority',c.transferAuth,route(async(req,res)=>{
-    requireMember(req.body?.owner);
+    await requireMember(req.body?.owner);
     res.json({ok:true,result:await store.delivery(req.body?.owner,req.body?.review_id)});
   }));
   app.get('/api/transfer/song-commerce-status',c.transferAuth,route(async(req,res)=>{
     res.json({ok:true,result:await store.status()});
   }));
   app.post('/api/transfer/song-review-delivered',c.transferAuth,route(async(req,res)=>{
-    requireMember(req.body?.owner);
+    await requireMember(req.body?.owner);
     res.json(await store.delivered(req.body?.owner,req.body?.review_id,req.body?.receipt_sha256));
   }));
   app.get('/api/song-review-audio/:sha',route(async(req,res)=>{
@@ -103,11 +113,24 @@ function attach(app,c) {
     demand(hex(req.params.sha)&&a&&a.iss==='project-x'&&a.aud==='song-preview-audio'
       &&a.sha256===req.params.sha&&Number.isInteger(a.iat)&&Number.isInteger(a.exp)
       &&a.iat<=now&&a.exp>now&&a.exp-a.iat<=900,'Preview link expired. Refresh your review.',401);
-    requireMember(a.sub);
+    await requireMember(a.sub);
     res.set('Content-Type','audio/mpeg');res.set('Content-Disposition','inline; filename="Project X Preview.mp3"');
     res.set('Referrer-Policy','no-referrer');res.set('X-Content-Type-Options','nosniff');
     res.sendFile(path.resolve(audio,req.params.sha+'.mp3'),e=>{if(e&&!res.headersSent)res.status(e.statusCode||404).end();});
   }));
+  app.post('/api/transfer/song-testers',c.transferAuth,route(async(req,res)=>{
+    const b=req.body||{};let result;
+    if(b.operation==='INVITE')result=await store.inviteTester(b);
+    else if(b.operation==='REVOKE')result=await store.revokeTester(b);
+    else if(b.operation==='EXPORT')result=await store.exportTester(b.enrollment_id);
+    else if(b.operation==='LIST')result=await store.listTesters();
+    else demand(false,'Unknown tester operator action.',400);
+    res.json({ok:true,result});
+  }));
+  app.post('/api/transfer/song-promotion-check',c.transferAuth,route(async(req,res)=>{
+    res.json({ok:true,result:await store.checkPromotion(req.body?.owner,req.body?.promotion,req.body?.email)});
+  }));
   return store;
 }
 module.exports={attach};
+

@@ -145,7 +145,7 @@ function attachWixOrders(app, context) {
         }
         item.can_choose_another=item.cancellation&&item.cancellation.status==='REQUESTED'?false:Boolean(item.cancellation&&['CANCELLED','TOO_LATE'].includes(item.cancellation.status))||['CANCELLED','REFUNDED','COMPLETED'].includes(item.order_status);
       }
-      const creationAllowed=context.customerCommerce?.memberAllowed(claims.sub)===true||songAccess.memberAllowed(claims.sub);
+      const creationAllowed=(await context.customerCommerce?.memberAllowed(claims.sub))===true||songAccess.memberAllowed(claims.sub);
       let activeSong=true;
       let admissionMessage=require('./account-song-limit').MESSAGE;
       try { activeSong=await require('./account-song-limit').createAccountSongGate(context.dataDir).findActive(claims.sub); }
@@ -173,7 +173,7 @@ function attachWixOrders(app, context) {
             item.review=reviewed;
             item.review_url='https://www.sdpsongs.ca/song-review';
             item.status_label=reviewed.payment_review_required?'Payment review needed':reviewed.state==='DELIVERED'?'Song emailed':reviewed.authorized?'Preparing delivery':'Your song is ready to review';
-            item.message=reviewed.authorized?'Your approved song is being prepared for clean MP3 delivery.':'Listen to your full watermarked preview, then approve and pay or use a song credit.';
+            item.message=reviewed.authorized?'Your approved song is being prepared for clean MP3 delivery.':reviewed.promotion?'Listen to your full watermarked preview, then approve your free promotional sample.':'Listen to your full watermarked preview, then approve and pay or use a song credit.';
           }
         }
       }
@@ -184,3 +184,4 @@ function attachWixOrders(app, context) {
   });
 }
 module.exports={attachWixOrders,authorized,validateSnapshot,displayOrder};
+

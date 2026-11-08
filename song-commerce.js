@@ -3,6 +3,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const testers = require('./song-testers');
 const PRICES = Object.freeze({VOICE_CLONE:2399, ORIGINAL_MESSAGE:1399, ORIGINAL_ONLY:899});
 const PLANS = Object.freeze({THREE:{credits:3,amount_minor:4399}, EIGHT:{credits:8,amount_minor:6499}});
 const digest = x => crypto.createHash('sha256').update(JSON.stringify(x)).digest('hex');
@@ -26,7 +27,8 @@ function available(s,owner) {demand(!s.holds[owner],'Payment requires operator r
 function publicReview(s,r) {
   return {review_id:r.review_id,selection_id:r.selection_id,order_id:r.order_id,run_id:r.run_id,
     product:r.product,title:r.title,state:r.state,preview_sha256:r.preview_sha256,
-    duration:r.duration,watermarks:r.watermarks,price_minor:PRICES[r.product],currency:'CAD',
+    duration:r.duration,watermarks:r.watermarks,price_minor:r.promotion?0:PRICES[r.product],currency:'CAD',
+    ...(r.promotion?{promotion:r.promotion,promotion_available:testers.active(s,r.owner)&&testers.enrollment(s,r.owner)?.enrollment_id===r.promotion.enrollment_id}:{}),
     tax_included:true,credits:balance(s,r.owner),approved_at:r.approved_at||'',
     authorized:!!r.authorization,payment_review_required:!!s.holds[r.owner],delivered_at:r.delivered_at||''};
 }
@@ -61,7 +63,7 @@ function createStore(directory, config={}) {
     try {
       let s;try{s=JSON.parse(await fs.readFile(stateFile,'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;s=initial();}
       demand(s.schema==='PX-SONG-COMMERCE-1.0'&&Number.isSafeInteger(s.revision),'Commerce state requires review.',503);
-      const result=await fn(s);s.revision++;
+      testers.db(s);const result=await fn(s);s.revision++;
       const temp=stateFile+'.'+crypto.randomUUID()+'.tmp';
       try {
         const h=await fs.open(temp,'wx',0o600);
@@ -74,6 +76,17 @@ function createStore(directory, config={}) {
     } finally {await fs.rmdir(lock);}
   }
   return {
+    testerStatus:owner=>transaction(s=>testers.status(s,owner)),
+    testerKnown:owner=>transaction(s=>testers.known(s,owner)),
+    testerInvitedEmail:email=>transaction(s=>Object.values(testers.db(s).invitations).some(i=>i.email===email)),
+    inviteTester:body=>transaction(s=>testers.invite(s,body)),
+    presentTester:(owner,email,token)=>transaction(s=>testers.present(s,owner,email,token)),
+    acceptTester:(owner,email,body)=>transaction(s=>testers.accept(s,owner,email,body)),
+    revokeTester:(body,owner)=>transaction(s=>testers.revoke(s,body,owner)),
+    exportTester:key=>transaction(s=>{const d=testers.db(s),e=d.enrollments[key];demand(e,'Tester enrollment not found.',404);return {acceptance:e,agreement:d.agreements[e.agreement_sha256]};}),
+    listTesters:()=>transaction(s=>({invitations:Object.values(testers.db(s).invitations).map(({token_sha256,presentation,...x})=>x),enrollments:Object.values(testers.db(s).enrollments)})),
+    testerAdmission:(owner,email,fn)=>transaction(s=>{const e=testers.enrollment(s,owner);return fn(e&&testers.active(s,owner)?testers.authority(s,owner,testers.evidence(e),email):null);}),
+    checkPromotion:(owner,promotion,email)=>transaction(s=>testers.authority(s,owner,promotion,email)),
     async publish(x) {return transaction(s=>{
       demand(uuid(x.review_id)&&uuid(x.selection_id)&&id(x.owner)&&/^PXO-\d{6}$/.test(x.order_id)
         &&/^PXR-\d{6}$/.test(x.run_id)&&PRICES[x.product]&&sha(x.master_sha256)&&sha(x.preview_sha256)
@@ -85,18 +98,26 @@ function createStore(directory, config={}) {
           &&w.duration>0&&w.at>=0&&w.at+w.duration<=x.duration
           &&(i===0||w.at>=x.watermarks[i-1].at+x.watermarks[i-1].duration)),'Three distinct, separate watermarks are required.',400);
       const keys=['review_id','selection_id','owner','order_id','run_id','product','title','master_sha256','preview_sha256','duration','watermarks'];
-      const record=Object.fromEntries(keys.map(k=>[k,x[k]]));record.identity=digest(record);
+      const record=Object.fromEntries(keys.map(k=>[k,x[k]]));
+      if(x.promotion)record.promotion=testers.authority(s,x.owner,x.promotion);
+      record.identity=digest(record);
       const old=s.reviews[x.review_id];
       if(old) {demand(old.identity===record.identity,'Review evidence changed. Publish a new review revision.');return publicReview(s,old);}
       demand(!Object.values(s.reviews).some(r=>r.order_id===x.order_id),'Order already has a review.');
       record.state='REVIEW';record.created_at=stamp();s.reviews[x.review_id]=record;return publicReview(s,record);
     });},
     async get(owner,key) {return transaction(s=>publicReview(s,owned(s,owner,key)));},
-    async list(owner) {return transaction(s=>({credits:balance(s,owner),reviews:Object.values(s.reviews).filter(r=>r.owner===owner).map(r=>publicReview(s,r))}));},
+    async list(owner) {return transaction(s=>({tester:testers.status(s,owner),credits:balance(s,owner),reviews:Object.values(s.reviews).filter(r=>r.owner===owner).map(r=>publicReview(s,r))}));},
     async approve(owner,key,previewHash,method) {return transaction(s=>{
       available(s,owner);const r=owned(s,owner,key);
       demand(r.preview_sha256===previewHash,'The song preview changed. Listen to the current version.');
-      demand(['CREDIT','PAYMENT'].includes(method),'Choose a credit or checkout.',400);
+      demand(['CREDIT','PAYMENT','PROMOTION'].includes(method),'Choose an available approval method.',400);
+      demand(r.promotion?method==='PROMOTION':method!=='PROMOTION','The approval method differs from this request.');
+      if(method==='PROMOTION'){
+        const evidence=testers.authority(s,owner,r.promotion);
+        if(!r.authorization){demand(r.state==='REVIEW','This review cannot be approved.');r.approved_at=stamp();authorize(r,'PROMOTION',evidence.enrollment_id);}
+        demand(r.authorization.kind==='PROMOTION','Song approval method differs.');return publicReview(s,r);
+      }
       if(r.authorization) {demand(r.authorization.kind===method,'This song is already approved using another method.');return publicReview(s,r);}
       if(method==='CREDIT') {
         demand(r.state==='REVIEW','Checkout is already in progress.');
@@ -211,9 +232,11 @@ function createStore(directory, config={}) {
       payment_holds:Object.keys(s.holds).length,reconciliation_issues:Object.values(s.issues||{}),
       pending_checkouts:Object.values(s.intents).filter(i=>i.state!=='SUCCESSFUL').length}));},
     async delivery(owner,key) {return transaction(s=>{
-      available(s,owner);const r=owned(s,owner,key);demand(r.authorization,'Approval and payment/credit are required.');
+      available(s,owner);const r=owned(s,owner,key);demand(r.authorization,'Song approval is required.');
+      if(r.authorization.kind==='PROMOTION'&&r.state!=='DELIVERED')testers.authority(s,owner,r.promotion);
       return {review_id:key,owner,selection_id:r.selection_id,order_id:r.order_id,run_id:r.run_id,
         master_sha256:r.master_sha256,preview_sha256:r.preview_sha256,authorization:r.authorization,state:r.state,
+        ...(r.promotion?{promotion:r.promotion}:{}),
         ...(r.authorization.kind==='PAYMENT'?{payment:{payment_id:r.authorization.reference,
           transaction_id:s.payments[r.authorization.reference].success.transaction_id,
           amount_minor:s.payments[r.authorization.reference].success.amount_minor,currency:'CAD'}}:{})};
@@ -226,3 +249,4 @@ function createStore(directory, config={}) {
   };
 }
 module.exports={createStore,PRICES,PLANS,minor,digest,demand};
+

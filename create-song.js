@@ -19,7 +19,9 @@ function attachCreateSong(app,c){
  async function withdrawn(r){const {readCancel}=require('./wix-cancel');const s=await readCancel(c.dataDir,r.owner_member_id,'SELECTION',r.selection_id);const o=r.order_id?await readCancel(c.dataDir,r.owner_member_id,'ORDER',r.order_id):null;return [s,o].some(v=>v&&v.status!=='TOO_LATE');}
  app.post('/api/wix/create-song',async(req,res,next)=>{try{
   const a=c.verifySigned(req.body?.ticket);if(!authorized(a,Math.floor(Date.now()/1000)))return res.status(401).json({error:'Song creation authorization failed.'});
-  if(c.customerCommerce?.memberAllowed(a.sub)&&!await c.customerCommerce.hasLegacy(a.sub,a.selection_id)){
+  const testerReserved=await c.customerCommerce?.testerReserved?.(a.sub,a.email);
+  if(testerReserved&&await c.customerCommerce.hasLegacy(a.sub,a.selection_id))error('This earlier test request needs operator review before continuing.');
+  if((testerReserved||await c.customerCommerce?.memberAllowed(a.sub))&&!await c.customerCommerce.hasLegacy(a.sub,a.selection_id)){
    if(!await c.consumeTicket(a.jti))return res.status(401).json({error:'Authorization already used. Refresh your orders.'});
    return res.json(await c.customerCommerce.admit(a));
   }
@@ -124,3 +126,4 @@ function attachCreateSong(app,c){
  return {async summaryFor(owner,id){return publicState(await owned(id,owner));}};
 }
 module.exports={attachCreateSong,authorized};
+

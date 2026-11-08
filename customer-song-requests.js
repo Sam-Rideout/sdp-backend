@@ -8,7 +8,8 @@ function attach(app,c){
   const root=path.join(c.dataDir,'song-commits');
   const gate=require('./account-song-limit').createAccountSongGate(c.dataDir);
   const commerce=createStore(path.join(c.dataDir,'song-commerce'),c.config);
-  const memberAllowed=owner=>c.config.enabled===true&&(c.config.public_processing===true||c.config.pilot_members?.includes(owner));
+  const regularAllowed=owner=>c.config.enabled===true&&(c.config.public_processing===true||c.config.pilot_members?.includes(owner));
+  const memberAllowed=async owner=>c.config.enabled===true&&(regularAllowed(owner)||(await commerce.testerStatus(owner)).active);
   const file=id=>{demand(uuid(id),'Invalid song selection.',400);return path.join(root,id+'.json');};
   async function owned(owner,id){const r=await read(file(id));if(r)demand(r.owner_member_id===owner&&r.selection_id===id&&r.schema_version==='PX-CREATE-SONG-1.0','Song request owner differs.');return r;}
   async function assertCustomerAvailable(owner){
@@ -42,15 +43,16 @@ function attach(app,c){
     names=names.filter(n=>uuid(n.slice(0,-5))&&n.endsWith('.json'));
     demand(names.length<=5000,'Customer song archive requires maintenance.',503);
     const commands=[];
-    for(const name of names){const r=await read(path.join(root,name));if(r?.mode==='CUSTOMER'&&memberAllowed(r.owner_member_id)&&['REQUESTED','WORKING'].includes(r.state))commands.push(r);}
+    for(const name of names){const r=await read(path.join(root,name));if(r?.mode==='CUSTOMER'&&(regularAllowed(r.owner_member_id)||r.promotion&&await commerce.testerKnown(r.owner_member_id))&&['REQUESTED','WORKING'].includes(r.state))commands.push(r);}
     demand(commands.length<=100,'Customer queue requires pagination.',503);
     commands.sort((a,b)=>a.requested_at.localeCompare(b.requested_at));res.json({ok:true,commands});
   }catch(e){next(e);}});
   return {
     memberAllowed,
+    async testerReserved(owner,email){return await commerce.testerKnown(owner)||await commerce.testerInvitedEmail(email);},
     async hasLegacy(owner,id){const r=await owned(owner,id);return !!r&&r.mode==='ACCOUNT_TEST';},
     async admit(a){
-      demand(memberAllowed(a.sub),'Customer preview processing is not enabled for this account.',403);
+      demand(await memberAllowed(a.sub),'Customer preview processing is not enabled for this account.',403);
       demand(typeof a.email==='string'&&a.email===a.email.trim().toLowerCase()&&a.email.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email),'Verified member email is missing.');
       return gate.exclusive(a.sub,async()=>{
         await fs.mkdir(root,{recursive:true,mode:0o700});const lock=file(a.selection_id)+'.lock';
@@ -68,15 +70,19 @@ function attach(app,c){
           demand(s.owner_member_id===a.sub&&/^PXC-\d{6}$/.test(s.customer_id||'')&&PRICES[product]
             &&['RECORDED','SKIPPED'].includes(frozen.message?.choice),'Customer selection or message authority differs.');
           demand(!s.account_test_only&&!s.profile_origin,'Test-only voice profiles cannot enter paid customer production.');
+          return await commerce.testerAdmission(a.sub,a.email,async promotion=>{
+          demand(promotion||regularAllowed(a.sub),'Song production is not enabled for this account.',403);
           r={schema_version:'PX-CREATE-SONG-1.0',selection_id:a.selection_id,owner_member_id:a.sub,email:a.email,
             mode:'CUSTOMER',authorize_preview:true,authorize_comped:false,authorize_test_email:false,
-            price_minor:PRICES[product],currency:'CAD',state:'REQUESTED',frozen,
+            ...(promotion?{promotion,catalog_price_minor:PRICES[product]}:{}),price_minor:promotion?0:PRICES[product],currency:'CAD',state:'REQUESTED',frozen,
             requested_at:new Date().toISOString(),updated_at:new Date().toISOString(),claim_id:null,order_id:'',run_id:''};
           await write(file(r.selection_id),r);
           return {ok:true,creation:{selection_id:r.selection_id,state:r.state,order_id:'',run_id:''}};
+          });
         }finally{await fs.rmdir(lock);}
       });
     }
   };
 }
 module.exports={attach};
+
