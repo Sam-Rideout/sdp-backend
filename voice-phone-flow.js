@@ -45,7 +45,7 @@ function attachPhoneFlow(app,c){
  await write(sid,s);if(['READY','FAILED','REVIEW_REQUIRED'].includes(s.phase)||s.selected_shift!==null)await cleanup(sid);res.json({ok:true});});}));
  // Operator recovery reopens processing only, never certification or READY.
  app.get('/api/transfer/phone-shutdown-recovery-capability',c.transferAuth,route(async(req,res)=>{
-  res.json({ok:true,protocol:'PX-TRAINING-SHUTDOWN-RECOVERY-1.0'});
+  res.json({ok:true,protocol:'PX-TRAINING-SHUTDOWN-RECOVERY-1.0',completed_training_recovery:true});
  }));
  app.post('/api/transfer/sessions/:sessionId/phone-resume-shutdown',c.transferAuth,route(async(req,res)=>{
   const m=await trusted(req),sid=m.session_id,b=req.body||{};
@@ -53,7 +53,8 @@ function attachPhoneFlow(app,c){
    const old=await read(sid);
    if(!old||old.job_id!==b.job_id||old.model_id!==b.model_id||old.enrollment_id!==b.enrollment_id||m.owner_member_id!==b.owner_member_id)
     return res.status(409).json({error:'Shutdown recovery claim mismatch.'});
-   if(!/^[a-f0-9]{32}$/.test(b.recovery_id||'')||b.reason!=='WATCH_STOP_AFTER_Q10'||b.checkpoint_epoch!==10||b.target_epoch!==300||!bounded(b.request_id)||
+   const validBoundary=(b.reason==='WATCH_STOP_AFTER_Q10'&&b.checkpoint_epoch===10)||(b.reason==='CONTROLLER_INTERRUPTED_AFTER_FINAL_TRAINING'&&b.checkpoint_epoch===300);
+   if(!/^[a-f0-9]{32}$/.test(b.recovery_id||'')||!validBoundary||b.target_epoch!==300||!bounded(b.request_id)||
       !hex(b.generator_sha256)||!hex(b.discriminator_sha256)||!hex(b.model_sha256)||
       b.source_clips_sha256!==m.phone_training.source_clips_sha256||b.consent_sha256!==hash(Buffer.from(JSON.stringify(m.consent))))
     return res.status(400).json({error:'Shutdown recovery evidence is invalid.'});
@@ -63,9 +64,9 @@ function attachPhoneFlow(app,c){
     return res.status(409).json({error:'Only the exact unchanged review hold can resume.'});
    const now=new Date().toISOString();
    const s={...old,...stampProgress(old,{phase:'TRAINING',stage_code:'CALIBRATING',progress_updated_at:now,worker_updated_at:now}),
-      phase:'TRAINING',request_id:b.request_id,epoch:10,options:[],command:null,package_id:'',operator_attention:'',preparation_finished_at:null,updated_at:now,
+      phase:'TRAINING',request_id:b.request_id,epoch:b.checkpoint_epoch,options:[],command:null,package_id:'',operator_attention:'',preparation_finished_at:null,updated_at:now,
       shutdown_recovery:{recovery_id:b.recovery_id,previous_phase:old.phase,previous_updated_at:old.updated_at,reason:b.reason,
-       checkpoint_epoch:10,target_epoch:b.target_epoch,generator_sha256:b.generator_sha256,discriminator_sha256:b.discriminator_sha256,
+       checkpoint_epoch:b.checkpoint_epoch,target_epoch:b.target_epoch,generator_sha256:b.generator_sha256,discriminator_sha256:b.discriminator_sha256,
        model_sha256:b.model_sha256,source_clips_sha256:b.source_clips_sha256,started_at:now}};
    await write(sid,s);
    res.json({ok:true,recovery_id:b.recovery_id,phase:'TRAINING',resumed:true});
