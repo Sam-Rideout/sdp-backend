@@ -41,8 +41,36 @@ function attachPhoneFlow(app,c){
  if(options.length&&(!hex(b.package_id)||!Number.isInteger(b.round)||b.round<1||b.round>3))return res.status(400).json({error:'Invalid Key Finder package.'});
  if(old?.command&&old.command.applied!==true&&old.package_id!==b.package_id)return res.status(409).json({error:'A pending phone choice must be acknowledged first.'});
  let progressFields;try{progressFields=stampProgress(old,b);}catch{return res.status(400).json({error:'Invalid preparation progress.'});}
- const s={...progressFields,job_id:b.job_id,model_id:b.model_id,enrollment_id:b.enrollment_id,phase:b.phase,request_id:typeof b.request_id==='string'?b.request_id.slice(0,200):'',epoch:Number.isInteger(b.epoch)&&b.epoch>=0&&b.epoch<=300?b.epoch:0,round:b.round||1,package_id:b.package_id||'',options,command:old?.command||null,selected_shift:Number.isInteger(b.selected_shift)?b.selected_shift:null,updated_at:new Date().toISOString()};
+ const s={...(old?.shutdown_recovery?{shutdown_recovery:old.shutdown_recovery}:{}),...progressFields,job_id:b.job_id,model_id:b.model_id,enrollment_id:b.enrollment_id,phase:b.phase,request_id:typeof b.request_id==='string'?b.request_id.slice(0,200):'',epoch:Number.isInteger(b.epoch)&&b.epoch>=0&&b.epoch<=300?b.epoch:0,round:b.round||1,package_id:b.package_id||'',options,command:old?.command||null,selected_shift:Number.isInteger(b.selected_shift)?b.selected_shift:null,updated_at:new Date().toISOString()};
  await write(sid,s);if(['READY','FAILED','REVIEW_REQUIRED'].includes(s.phase)||s.selected_shift!==null)await cleanup(sid);res.json({ok:true});});}));
+ // Operator recovery reopens processing only, never certification or READY.
+ app.get('/api/transfer/phone-shutdown-recovery-capability',c.transferAuth,route(async(req,res)=>{
+  res.json({ok:true,protocol:'PX-TRAINING-SHUTDOWN-RECOVERY-1.0'});
+ }));
+ app.post('/api/transfer/sessions/:sessionId/phone-resume-shutdown',c.transferAuth,route(async(req,res)=>{
+  const m=await trusted(req),sid=m.session_id,b=req.body||{};
+  await exclusive(sid,async()=>{
+   const old=await read(sid);
+   if(!old||old.job_id!==b.job_id||old.model_id!==b.model_id||old.enrollment_id!==b.enrollment_id||m.owner_member_id!==b.owner_member_id)
+    return res.status(409).json({error:'Shutdown recovery claim mismatch.'});
+   if(!/^[a-f0-9]{32}$/.test(b.recovery_id||'')||b.reason!=='WATCH_STOP_AFTER_Q10'||b.checkpoint_epoch!==10||b.target_epoch!==300||!bounded(b.request_id)||
+      !hex(b.generator_sha256)||!hex(b.discriminator_sha256)||!hex(b.model_sha256)||
+      b.source_clips_sha256!==m.phone_training.source_clips_sha256||b.consent_sha256!==hash(Buffer.from(JSON.stringify(m.consent))))
+    return res.status(400).json({error:'Shutdown recovery evidence is invalid.'});
+   if(old.shutdown_recovery?.recovery_id===b.recovery_id&&old.phase==='TRAINING')
+    return res.json({ok:true,recovery_id:b.recovery_id,phase:'TRAINING',resumed:true});
+   if(old.phase!=='REVIEW_REQUIRED'||old.updated_at!==b.previous_updated_at||old.command)
+    return res.status(409).json({error:'Only the exact unchanged review hold can resume.'});
+   const now=new Date().toISOString();
+   const s={...old,...stampProgress(old,{phase:'TRAINING',stage_code:'CALIBRATING',progress_updated_at:now,worker_updated_at:now}),
+      phase:'TRAINING',request_id:b.request_id,epoch:10,options:[],command:null,package_id:'',operator_attention:'',preparation_finished_at:null,updated_at:now,
+      shutdown_recovery:{recovery_id:b.recovery_id,previous_phase:old.phase,previous_updated_at:old.updated_at,reason:b.reason,
+       checkpoint_epoch:10,target_epoch:b.target_epoch,generator_sha256:b.generator_sha256,discriminator_sha256:b.discriminator_sha256,
+       model_sha256:b.model_sha256,source_clips_sha256:b.source_clips_sha256,started_at:now}};
+   await write(sid,s);
+   res.json({ok:true,recovery_id:b.recovery_id,phase:'TRAINING',resumed:true});
+  });
+ }));
  // Explicit recovery: only an already published certificate for this exact claim.
  app.post('/api/transfer/sessions/:sessionId/phone-recover-certified',c.transferAuth,route(async(req,res)=>{
   const m=await trusted(req),sid=m.session_id,b=req.body||{};
