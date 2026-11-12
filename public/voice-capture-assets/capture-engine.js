@@ -181,13 +181,22 @@ function showSection(id) {
   if(typeof guidedLesson==='function')guidedLesson(section);
 }
 
+// Customer-facing labels describe progress without exposing storage lifecycle codes.
+function recordingSessionLabel(session) {
+  return ({
+    RECORDING: 'Recording in progress',
+    READY_FOR_TRANSFER: 'Recordings submitted',
+    TRANSFERRED_AUDIO_DELETED: 'Recordings received — view profile progress'
+  })[session.status] || 'Check recording status';
+}
+
 async function refreshSessions() {
   const data=await api('/api/sessions'); const sessions=data.sessions||[];
   const wrap=$('existingWrap'), select=$('sessions'); select.innerHTML='';
   const resumable=sessions.filter(item=>['RECORDING','READY_FOR_TRANSFER'].includes(item.status)||(item.program==='CUSTOMER'&&item.phone_training?.accepted===true&&item.status==='TRANSFERRED_AUDIO_DELETED'));
   if(resumable.length) {
     wrap.hidden=false;
-    for(const item of resumable){const option=document.createElement('option'); option.value=item.session_id; option.textContent=`${new Date(item.created_at).toLocaleString()} · ${item.status.replaceAll('_',' ')}`; select.appendChild(option);}
+    for(const item of resumable){const option=document.createElement('option'); option.value=item.session_id; option.textContent=`${new Date(item.created_at).toLocaleString()} · ${recordingSessionLabel(item)}`; select.appendChild(option);}
   } else wrap.hidden=true;
   $('startCard').hidden=progressReturnMode;
   if(typeof guidedSessionList==='function')guidedSessionList();
