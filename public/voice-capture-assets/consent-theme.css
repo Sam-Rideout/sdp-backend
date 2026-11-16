@@ -1,0 +1,35 @@
+/* Before You Begin typography: Plantin MT Std Regular, 42 / 24 / 20 px.
+   Add the licensed webfont as plantin-mt-std-regular.woff2 in this folder
+   before enabling its URL source below. Local installations use Plantin now. */
+@font-face {
+  font-family: "PX Plantin";
+  src: local("Plantin MT Std"), local("PlantinMTStd-Regular");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+html { background: #000; color-scheme: dark; }
+body {
+  box-sizing: border-box;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 64px 32px 80px;
+  background: #000;
+  color: #f4eee5;
+  font-family: "PX Plantin", "Plantin MT Std", Georgia, serif;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+main { min-width: 0; overflow-wrap: anywhere; }
+h1, h2 { font-family: inherit; font-weight: 400; }
+h1 { margin: 0 0 24px; font-size: 42px; line-height: 1.2; }
+h2 { margin: 36px 0 12px; font-size: 24px; line-height: 1.35; }
+p { margin: 0 0 20px; }
+@media (max-width: 600px) {
+  body { padding: 32px 20px 48px; }
+}
+@media print {
+  html, body { background: #fff; color: #000; }
+  body { max-width: none; padding: 0; }
+}
