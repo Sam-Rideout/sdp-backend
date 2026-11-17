@@ -42,14 +42,14 @@ test('the recorder route requires the authentication middleware',()=>{
 });
 const entry=fs.readFileSync(path.join(root,'public','voice-capture-assets','member-entry.js'),'utf8');
 async function entryRun(hash,response={ok:true}){
- const state={fetches:[],history:[],redirects:[],status:{textContent:''}};
+ const state={fetches:[],history:[],redirects:[],status:{textContent:''},panel:{hidden:true},entryStatus:{hidden:false}};
  const globals={URLSearchParams,location:{hash,pathname:'/voice-capture',search:'',replace:url=>state.redirects.push(url)},
-  history:{replaceState:(_a,_b,url)=>state.history.push(url)},document:{getElementById:()=>state.status},
+  history:{replaceState:(_a,_b,url)=>state.history.push(url)},document:{getElementById:id=>({'signInStatus':state.status,'signInPanel':state.panel,'entryStatus':state.entryStatus})[id]},
   fetch:async(url,options)=>{state.fetches.push({url,options});if(response instanceof Error)throw response;return response;}};
  await vm.runInNewContext(entry,globals);return state;
 }
 test('no ticket leaves an anonymous visitor on the sign-in screen',async()=>{
- const r=await entryRun('');assert.equal(r.fetches.length,0);assert.equal(r.redirects.length,0);
+ const r=await entryRun('');assert.equal(r.fetches.length,0);assert.equal(r.redirects.length,0);assert.equal(r.panel.hidden,false);
 });
 test('Wix handoff exchanges the ticket and preserves progress without retaining the token',async()=>{
  const r=await entryRun('#ticket=one-use-ticket&view=progress');
@@ -58,11 +58,19 @@ test('Wix handoff exchanges the ticket and preserves progress without retaining 
  assert.equal(JSON.parse(r.fetches[0].options.body).ticket,'one-use-ticket');
  assert.deepEqual(r.history,['/voice-capture?view=progress']);
  assert.deepEqual(r.redirects,['/voice-capture?view=progress']);
+ assert.equal(r.panel.hidden,true);assert.equal(r.entryStatus.hidden,false);
 });
 test('rejected and unavailable exchanges do not redirect or expose the ticket',async()=>{
  for(const response of [{ok:false},new Error('offline')]){
   const r=await entryRun('#ticket=private-ticket',response);
   assert.equal(r.redirects.length,0);assert.match(r.status.textContent,/could not be confirmed/);
+  assert.equal(r.panel.hidden,false);assert.equal(r.entryStatus.hidden,true);
   assert.doesNotMatch(r.status.textContent,/private-ticket/);
  }
+});
+
+test('the initial document hides the sign-in panel until the handoff is checked',()=>{
+ const html=fs.readFileSync(path.join(root,'public','voice-capture-sign-in.html'),'utf8');
+ assert.match(html,/<main id="signInPanel" hidden>/);
+ assert.match(html,/<noscript><style>#signInPanel\[hidden\]/);
 });
