@@ -3,7 +3,13 @@
 (async () => {
   const fragment = new URLSearchParams(location.hash.slice(1));
   const ticket = fragment.get('ticket');
-  if (!ticket) return;
+  const panel = document.getElementById('signInPanel');
+  const entryStatus = document.getElementById('entryStatus');
+  const showSignIn = () => {
+    panel.hidden = false;
+    entryStatus.hidden = true;
+  };
+  if (!ticket) { showSignIn(); return; }
   fragment.delete('ticket');
   const progress = new URLSearchParams(location.search).get('view') === 'progress' ||
     fragment.get('view') === 'progress';
@@ -21,5 +27,6 @@
     location.replace(destination);
   } catch (_) {
     status.textContent = 'Your sign-in link could not be confirmed. Return to Project X and open voice recording again.';
+    showSignIn();
   }
 })();
