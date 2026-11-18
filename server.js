@@ -191,19 +191,31 @@ function cookieValue(req) {
   return '';
 }
 
+function memberSignInRequired(req, res) {
+  if (req.path === '/voice-capture') {
+    res.vary('Cookie');
+    return res.status(401).sendFile(path.join(ROOT, 'public', 'voice-capture-sign-in.html'));
+  }
+  return res.status(401).json({ error: 'Sign in through the Project X member page to continue.' });
+}
+
 function authenticatedMember(req, res, next) {
+  if (req.path === '/voice-capture') res.vary('Cookie');
   try {
     const payload = verifySigned(cookieValue(req));
     const now = Math.floor(Date.now() / 1000);
     if (!payload || payload.iss !== 'project-x-voice-capture' ||
         typeof payload.sub !== 'string' || payload.sub.length < 3 ||
         !Number.isInteger(payload.exp) || payload.exp <= now) {
-      return res.status(401).json({ error: 'Sign in through the Project X member page to continue.' });
+      return memberSignInRequired(req, res);
     }
     req.memberId = payload.sub;
     req.memberEmail = normalizeEmail(payload.email);
     next();
-  } catch (error) { next(error); }
+  } catch (error) {
+    if (req.path === '/voice-capture' && error instanceof URIError) return memberSignInRequired(req, res);
+    next(error);
+  }
 }
 
 function requireSameOrigin(req, res, next) {
@@ -342,12 +354,19 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => res.redirect(302, '/voice-capture'));
 app.get('/voice-recording-upload', (req,res)=>res.sendFile(path.join(ROOT,'public','voice-recording-upload.html')));
 app.use('/voice-capture-assets', express.static(path.join(ROOT, 'public', 'voice-capture-assets'), { index:false, dotfiles:'deny', redirect:false }));
-app.get('/voice-capture', (req, res) => res.sendFile(path.join(ROOT, 'public', 'voice-capture.html')));
+app.get('/voice-capture', authenticatedMember, (req, res) => res.sendFile(path.join(ROOT, 'public', 'voice-capture.html')));
 app.get('/consent', (req,res)=>{
   const version=req.query.version;
   if(version!==undefined && (typeof version!=='string'||!/^[a-f0-9]{64}$/.test(version)))return res.status(400).send('Invalid consent document reference.');
   const file=version?path.join(ROOT,'public','consent-archive',version+'.html'):path.join(ROOT,'public','consent.html');
-  res.set('Cache-Control','no-store');res.sendFile(file);
+  res.set('Cache-Control','no-store');
+  // Versioned responses remain the exact archived bytes used for consent evidence.
+  if(version!==undefined)return res.sendFile(file);
+  fs.readFile(file,'utf8',(error,document)=>{
+    if(error)return res.status(500).type('text').send('Unable to load consent terms.');
+    const theme='<link rel="stylesheet" href="/voice-capture-assets/consent-theme.css?v=20261116-1">';
+    res.type('html').send(document.replace('</head>',theme+'</head>'));
+  });
 });
 app.get('/pilot-consent', (req, res) => res.sendFile(path.join(ROOT, 'public', 'pilot-consent.html')));
 
