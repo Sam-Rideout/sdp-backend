@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const MESSAGE = 'You already have a song waiting or processing. Please wait until it finishes before creating another.';
 const TERMINAL = new Set(['COMPLETED', 'REJECTED', 'TECHNICAL_FAILURE', 'CANCELLED', 'REFUNDED', 'PAYMENT_FAILED']);
 const ACTIVE = new Set(['READY', 'QUEUED', 'PROCESSING']);
+const FAILED = new Set(['REJECTED', 'TECHNICAL_FAILURE']);
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 function gateError(code, message, status = 409) {
   const error = new Error(message);
@@ -54,7 +55,7 @@ function createAccountSongGate(dataDir) {
       if (excludeSelection && order.selection_id === excludeSelection) continue;
       const cancelled = await cancellation(order.selection_id, order.order_id);
       if (cancelled === 'CANCELLED') continue;
-      if (cancelled === 'REQUESTED' || ACTIVE.has(order.order_status)) return true;
+      if (cancelled === 'REQUESTED' || ACTIVE.has(order.order_status) || FAILED.has(order.order_status)) return true;
       if (!TERMINAL.has(order.order_status)) gateError('SONG_STATUS_UNAVAILABLE', 'Your current song status could not be confirmed.', 503);
     }
     let files;
@@ -79,6 +80,9 @@ function createAccountSongGate(dataDir) {
       if (linked.length > 1 || linked.some(order => record.order_id && order.order_id !== record.order_id)) {
         gateError('SONG_STATUS_UNAVAILABLE', 'Song request identity needs Project X review.', 503);
       }
+      // Failure is not cancellation. Keep failed requests blocked until the PC
+      // confirms withdrawal, including the legacy account-test path.
+      if (record.state === 'NEEDS_ATTENTION' || linked.some(order => FAILED.has(order.order_status))) return true;
       if (linked.length === 1 && TERMINAL.has(linked[0].order_status)) continue;
       // DONE means handoff finished; it does not prove that audio processing finished.
       // Missing status and NEEDS_ATTENTION remain blocked until resolved.

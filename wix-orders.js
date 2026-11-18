@@ -56,8 +56,8 @@ function displayOrder(o) {
     QUEUED:['Waiting to process','Your song request is waiting to be processed.'],
     PROCESSING:['Creating your song','Your song is being processed. You can return here to check its progress.'],
     COMPLETED:['Processing complete','Song processing is complete.'],
-    REJECTED:['Song could not be completed','This song could not be completed. Please try another song. No additional voice recordings have been requested.'],
-    TECHNICAL_FAILURE:['Technical issue','A technical issue prevented completion. No action or additional recordings are requested from you at this time.'],
+    REJECTED:['Song could not be completed','This song could not be completed. Choose Cancel Request and Choose Again below. We will confirm cancellation before returning you to Genre Selection. Your voice profile will be kept.'],
+    TECHNICAL_FAILURE:['Technical issue','A technical issue prevented completion. You can cancel this request and choose again below. We will confirm cancellation first. Your voice profile will be kept.'],
     CANCELLED:['Cancelled','This processing request was cancelled.'],
     REFUNDED:['Refunded','This order is recorded as refunded.'],
     PAYMENT_FAILED:['Payment needs attention','The order system recorded a payment problem. Contact Project X before trying another payment.'],
@@ -143,7 +143,7 @@ function attachWixOrders(app, context) {
           if(item.cancellation.status==='CANCELLED'){item.status_label='Cancelled';item.message='This song request has been withdrawn. Your voice profile has not been deleted.';}
           if(item.cancellation.status==='TOO_LATE')item.message+=' The cancellation arrived after the request had finished.';
         }
-        item.can_choose_another=item.cancellation&&item.cancellation.status==='REQUESTED'?false:Boolean(item.cancellation&&['CANCELLED','TOO_LATE'].includes(item.cancellation.status))||['CANCELLED','REFUNDED','COMPLETED'].includes(item.order_status);
+        item.can_choose_another=item.cancellation&&item.cancellation.status==='REQUESTED'?false:Boolean(item.cancellation&&item.cancellation.status==='CANCELLED')||['CANCELLED','REFUNDED','COMPLETED'].includes(item.order_status);
       }
       const creationAllowed=(await context.customerCommerce?.memberAllowed(claims.sub))===true||songAccess.memberAllowed(claims.sub);
       let activeSong=true;
@@ -163,7 +163,7 @@ function attachWixOrders(app, context) {
           item.can_add_message=false;
           if(item.creation.state==='NEEDS_ATTENTION'&&item.creation.outcome==='PRODUCTION_REJECTED'){
             item.status_label='Song could not be completed';
-            item.message='We could not complete this song. Cancel this song request and try another song. No payment or song credit was used.';
+            item.message='We could not complete this song. Choose Cancel Request and Choose Again below. Wait for confirmed cancellation before choosing a replacement. No payment or song credit was used.';
           }else if(item.creation.state==='NEEDS_ATTENTION'){
             item.status_label='Request needs review';
             item.message='We are checking this request. Please refresh My Orders later or contact Project X for help. Please do not submit another request while we check it.';
