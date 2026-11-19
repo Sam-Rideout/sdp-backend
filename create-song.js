@@ -112,6 +112,48 @@ function attachCreateSong(app,c){
    await write(file(id),r);res.json({ok:true,creation:publicState(r)});
   }));
  }catch(e){next(e);}});
+ // Operator-only recovery of the diagnosed pre-production missing-name failure.
+ // A cancelled, rejected, produced or differently claimed request cannot use this path.
+ app.post('/api/transfer/song-commits/:selectionId/recover-missing-singer',c.transferAuth,async(req,res,next)=>{try{
+  const b=req.body||{},id=req.params.selectionId;
+  if(id!=='109ed390-1164-4b76-b916-25c82a9a862e'||b.order_id!=='PXO-000071'
+    ||!member(b.owner_member_id)||!uuid(b.claim_id)||!['CHECK','APPLY'].includes(b.operation)
+    ||!['before_sha256','after_sha256'].every(k=>/^[a-f0-9]{64}$/.test(b[k]||''))
+    ||b.before_sha256===b.after_sha256)error('Recovery evidence rejected.');
+  await accountGate.exclusive(b.owner_member_id,()=>lock(id,async()=>{
+   const r=await owned(id,b.owner_member_id);
+   if(!r||r.mode!=='CUSTOMER'||r.authorize_preview!==true||r.authorize_comped||r.authorize_test_email
+     ||r.email!==b.email||r.claim_id!==b.claim_id||r.run_id
+     ||!['','PXO-000071'].includes(r.order_id||'')
+     ||r.frozen?.selection?.customer_id!=='PXC-000005'
+     ||r.frozen?.selection?.px_song_id!=='PX000041'
+     ||r.frozen?.selection?.selection_id!==id
+     ||r.frozen?.selection?.owner_member_id!==b.owner_member_id)error('Recovery request identity differs.');
+   if(await withdrawn(r))error('Request was withdrawn.');
+   const {readCancel}=require('./wix-cancel');
+   const cancellation=await readCancel(c.dataDir,b.owner_member_id,'ORDER',b.order_id);
+   if(cancellation&&cancellation.status!=='TOO_LATE')error('Order cancellation prevents recovery.');
+   if(!await c.customerCommerce?.memberAllowed(b.owner_member_id))error('Song creation is no longer authorized.',403);
+   const prior=r.operator_recoveries||[];
+   if(!Array.isArray(prior))error('Recovery history requires review.');
+   const recoveryId='PXO-000071-MISSING-SINGER-1';
+   const previous=prior.find(x=>x.recovery_id===recoveryId);
+   if(previous){
+    if(previous.before_sha256!==b.before_sha256||previous.after_sha256!==b.after_sha256
+      ||previous.order_id!==b.order_id)error('Recovery was bound to different evidence.');
+    return res.json({ok:true,already_recovered:true,creation:publicState(r)});
+   }
+   if(prior.length||r.state!=='NEEDS_ATTENTION'||r.outcome)error('Only the diagnosed pre-production failure can be recovered.');
+   await accountGate.assertAvailable(b.owner_member_id,id);
+   if(b.operation==='CHECK')return res.json({ok:true,recoverable:true,creation:publicState(r)});
+   r.operator_recoveries=[{recovery_id:recoveryId,order_id:b.order_id,
+     before_sha256:b.before_sha256,after_sha256:b.after_sha256,previous_state:r.state,
+     previous_updated_at:r.updated_at,authorized_by:'Sam Rideout',
+     reason:'Blank customer singer display name repaired before package/run creation.',at:new Date().toISOString()}];
+   r.order_id=b.order_id;r.state='WORKING';r.updated_at=new Date().toISOString();
+   await write(file(id),r);res.json({ok:true,recovered:true,creation:publicState(r)});
+  }));
+ }catch(e){next(e);}});
  app.post('/api/transfer/song-commits/:selectionId/receipt',c.transferAuth,async(req,res,next)=>{try{
   await lock(req.params.selectionId,async()=>{
    const b=req.body||{};const r=await owned(req.params.selectionId,b.owner_member_id);
@@ -128,4 +170,5 @@ function attachCreateSong(app,c){
  return {async summaryFor(owner,id){return publicState(await owned(id,owner));}};
 }
 module.exports={attachCreateSong,authorized};
+
 
