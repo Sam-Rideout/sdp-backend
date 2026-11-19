@@ -19,7 +19,9 @@
       el('testerAgreementTitle').textContent=view.agreement.title;
       el('testerAgreementEmail').textContent='Signed-in account: '+view.email;
       // This is the approved server-owned agreement, never a form-supplied HTML value.
-      el('testerAgreementText').innerHTML=view.agreement.html;
+      el('testerAgreementText').innerHTML=view.agreement.html
+        .replace(/<tr><td>Tester name<\/td><td>_+<\/td><\/tr>\s*/g,'')
+        .replace(/<p>Typed name: _+<\/p>\s*/g,'');
       el('testerAgree').checked=false;
       el('testerTypedName').value='';
       el('testerAgreementFields').hidden=false;

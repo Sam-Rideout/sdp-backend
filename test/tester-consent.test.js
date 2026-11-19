@@ -74,7 +74,11 @@ test('regular-customer browser keeps tester fields hidden and sends no acceptanc
 });
 test('tester browser shows full agreement with unchecked consent and waits for a name',async()=>{
  const {state}=fixture(),view=testers.presentForAccount(state,owner,email),{api,elements,requests}=await clientFixture(view);
- await api.load();assert.equal(elements.testerAgreementPanel.hidden,false);assert.equal(elements.testerAgreementText.innerHTML,testers.agreement.html);assert.equal(elements.testerAgree.checked,false);assert.equal(api.ready(),false);
+ await api.load();assert.equal(elements.testerAgreementPanel.hidden,false);assert.doesNotMatch(elements.testerAgreementText.innerHTML,/<td>Tester name<\/td>|Typed name: _+/);
+ for(const paragraph of testers.agreement.html.match(/<p>[\s\S]*?<\/p>/g)||[]){
+  if(!paragraph.startsWith('<p>Typed name:'))assert(elements.testerAgreementText.innerHTML.includes(paragraph));
+ }
+ assert(elements.testerTypedName);assert.equal(elements.testerAgree.checked,false);assert.equal(api.ready(),false);
  await assert.rejects(api.ensure());assert.equal(requests.length,1);
  elements.testerTypedName.value='Synthetic Tester';elements.testerAgree.checked=true;assert(api.ready());await api.ensure();
  const payload=JSON.parse(requests[1].body);assert.equal(payload.accepted,true);assert.equal(payload.agreement_version,testers.agreement.version);assert.equal(payload.typed_name,'Synthetic Tester');assert.equal(payload.owner,undefined);assert.equal(elements.testerAgreementFields.hidden,true);
