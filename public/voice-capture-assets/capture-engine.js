@@ -233,7 +233,7 @@ function retentionChoice() {
 }
 
 function customerConsentAccepted() {
-  return Boolean(retentionChoice()) && $('ageOwnVoice').checked && (config?.recording_setup_enabled!==true||typeof setupComplete!=='function'||setupComplete());
+  return Boolean(retentionChoice()) && $('ageOwnVoice').checked && (config?.recording_setup_enabled!==true||typeof setupComplete!=='function'||setupComplete()) && window.PXTesterConsent?.ready()===true;
 }
 
 function syncConsentControls(changedId='') {
@@ -342,6 +342,7 @@ async function initialize() {
     const hash=new URLSearchParams(location.hash.slice(1)); const ticket=hash.get('ticket');
     if(ticket){history.replaceState(null,'',location.pathname+(progressReturnMode?'?view=progress':'')); await api('/api/session/exchange',{method:'POST',headers:csrfHeaders(),body:JSON.stringify({ticket})});}
     config=await api('/api/config');
+    await window.PXTesterConsent.load();
     // Keep the eight required training prompts unchanged.
     if(config.special_message)config.sections.push(config.special_message);
     const pilotMode=config.capture_mode==='LIMITED_HELPER_PILOT';
@@ -816,3 +817,4 @@ $('retryProgressReturn').addEventListener('click',async()=>{
   finally{progressReturnBusy=false;$('retryProgressReturn').disabled=false;}
 });
 // Initialization is started by capture-guided.js after the page is wired.
+
