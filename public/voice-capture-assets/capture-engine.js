@@ -12,7 +12,11 @@ async function api(url, options={}) {
   const response = await fetch(url, { credentials:'same-origin', ...options });
   const type = response.headers.get('content-type') || '';
   const result = type.includes('application/json') ? await response.json() : null;
-  if (!response.ok) throw new Error(result?.error || `Request failed (${response.status}).`);
+  if (!response.ok) {
+    const error=new Error(result?.error || `Request failed (${response.status}).`);
+    error.status=response.status;
+    throw error;
+  }
   return result;
 }
 function csrfHeaders() { return { 'Content-Type':'application/json' }; }
@@ -203,6 +207,25 @@ async function refreshSessions() {
   return sessions;
 }
 
+async function resumeOpenRecordingAfterConflict(error) {
+  if(error.status!==409)return false;
+  const sessions=await refreshSessions();
+  const open=sessions.filter(item=>item.status==='RECORDING');
+  if(open.length===1) {
+    await selectSession(open[0].session_id);
+    setStatus('Signed in. Your saved recording session is ready to continue.','account');
+    setStatus('Your existing recording session has been reopened. Previously saved takes are preserved.');
+    return true;
+  }
+  if(open.length>1) {
+    if(typeof guidedShow==='function')guidedShow('guidedIntro',true);
+    setStatus('Signed in. Choose one of your saved recordings to continue.','account');
+    setStatus('Choose your saved recording, then select Open Selected Recording.');
+    return true;
+  }
+  return false;
+}
+
 function retentionChoice() {
   if($('deleteAfterOrder').checked) return 'DELETE_AFTER_ORDER';
   if($('futurePurchases').checked) return 'FUTURE_PURCHASES';
@@ -366,7 +389,18 @@ async function initialize() {
         : {consent:{accepted:true,version:config.consent_version,retention_choice:selectedRetention,development_use:$('developmentUse').checked,adult_confirmed:$('ageOwnVoice').checked,own_voice_confirmed:$('ageOwnVoice').checked}};
       if(!pilotMode&&config.recording_setup_enabled===true&&config.training_source!=='SUPPLIED_RECORDING')consentBody.recording_setup=window.PXGetSessionRecordingSetup?.();
       try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify(consentBody)});if(!pilotMode&&data.session.consent?.retention_choice==='FUTURE_PURCHASES')window.PXShowConsentReminder(data.session.consent.storage_expires_at,'signed');await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
-      catch(error){setStatus(error.message);}finally{guidedCreating=false;syncConsentControls();guidedUpdate();}
+      catch(error){
+        try {
+          if(!await resumeOpenRecordingAfterConflict(error)){
+            setStatus('Your recording session did not open. Please try again.','account');
+            setStatus(error.message);
+          }
+        } catch(resumeError) {
+          if(typeof guidedShow==='function')guidedShow('guidedIntro',true);
+          setStatus('Your saved recording could not be reopened. Please try Open Selected Recording.','account');
+          setStatus(resumeError.message);
+        }
+      }finally{guidedCreating=false;syncConsentControls();guidedUpdate();}
     });
     const ownedSessions=await refreshSessions();
     $('account').textContent='Signed in to Project X.';
