@@ -19,17 +19,19 @@ function invite(s,body){demand(email(body.email)&&text(body.actor,160),'Enter th
   const d=db(s);demand(!Object.values(d.invitations).some(x=>x.email===body.email&&x.status==='INVITED')&&!Object.values(d.enrollments).some(x=>x.email===body.email&&x.status==='ACTIVE'),'This email already has an invitation or active enrollment.');
   const token=crypto.randomBytes(32).toString('hex'),id=crypto.randomUUID();
   d.invitations[id]={invitation_id:id,email:body.email,token_sha256:hash(token),status:'INVITED',created_at:now(),created_by:body.actor};
-  return {invitation_id:id,email:body.email,invitation_url:'https://www.sdpsongs.ca/tester-invitation#invite='+token};
+  return {invitation_id:id,email:body.email,invitation_url:'https://sdp-backend-6xt7.onrender.com/tester-agreement#invite='+token};
 }
 function invitation(s,owner,accountEmail,token){demand(text(owner,200)&&email(accountEmail)&&/^[a-f0-9]{64}$/.test(token||''),'Sign in using your invited account.',403);
   const i=Object.values(db(s).invitations).find(x=>x.token_sha256===hash(token));
   demand(i&&i.email===accountEmail&&['INVITED','ACCEPTED'].includes(i.status)&&(!i.owner||i.owner===owner),'This invitation is not available for this account.',403);return i;}
-function present(s,owner,accountEmail,token){const i=invitation(s,owner,accountEmail,token);
+function present(s,owner,accountEmail,token){return presentInvitation(s,invitation(s,owner,accountEmail,token),owner,accountEmail);}
+function presentInvitation(s,i,owner,accountEmail){
   if(i.status==='ACCEPTED'){const e=db(s).enrollments[i.enrollment_id];return {tester:status(s,owner),accepted:true,email:accountEmail,acceptance:e,agreement:db(s).agreements[e.agreement_sha256]};}
   // A separate one-time presentation challenge binds the exact agreement sent by the server.
   const challenge=crypto.randomBytes(32).toString('hex');i.presentation={owner,challenge_sha256:hash(challenge),at:now(),agreement_sha256:agreement.sha256};
   return {accepted:false,email:accountEmail,invitation_id:i.invitation_id,challenge,agreement};}
-function accept(s,owner,accountEmail,body){const i=invitation(s,owner,accountEmail,body.token);
+function accept(s,owner,accountEmail,body){return acceptInvitation(s,invitation(s,owner,accountEmail,body.token),owner,accountEmail,body);}
+function acceptInvitation(s,i,owner,accountEmail,body){
   demand(body.accepted===true&&text(body.typed_name,160)&&body.agreement_sha256===agreement.sha256&&body.agreement_version===agreement.version,'Read the agreement, enter your name, and select the agreement checkbox.',400);
   if(i.status==='ACCEPTED'){const e=db(s).enrollments[i.enrollment_id];demand(e&&e.owner===owner&&e.status==='ACTIVE'&&e.typed_name===body.typed_name,'This invitation was already used or revoked.');return {tester:status(s,owner),acceptance:e,agreement:db(s).agreements[e.agreement_sha256]};}
   const p=i.presentation;demand(p&&p.owner===owner&&p.agreement_sha256===agreement.sha256&&/^[a-f0-9]{64}$/.test(body.challenge||'')&&p.challenge_sha256===hash(body.challenge)&&Date.now()-Date.parse(p.at)<=7200000,'Open the invitation and read the current agreement again.');
@@ -45,4 +47,31 @@ function revoke(s,body,owner){demand(text(body.reason,300)&&text(body.actor,160)
   return {ok:true,status:'REVOKED',revoked_at:e?.revoked_at||i.revoked_at};}
 function authority(s,owner,promotion,accountEmail){const e=enrollment(s,owner);demand(e&&active(s,owner)&&(!accountEmail||e.email===accountEmail),'Promotional tester status is not active. Contact Project X or cancel this sample.');
   const expected=evidence(e);demand(promotion&&JSON.stringify(expected)===JSON.stringify(Object.fromEntries(Object.keys(expected).map(k=>[k,promotion[k]]))),'Promotional enrollment differs from this request.');return expected;}
-module.exports={agreement,db,active,known,status,invite,present,accept,revoke,enrollment,evidence,authority};
+// Callers supply only identity from the verified signed-in session, never request-body identity.
+function accountInvitation(s,owner,accountEmail){
+  demand(text(owner,200)&&email(accountEmail),'Sign in using your invited account.',403);
+  const matches=Object.values(db(s).invitations).filter(i=>i.email===accountEmail&&i.status==='INVITED'&&(!i.owner||i.owner===owner));
+  demand(matches.length<=1,'Multiple tester invitations require Project X review.',409);
+  return matches[0]||null;
+}
+function consentStatus(s,owner,accountEmail){
+  const invitation=accountInvitation(s,owner,accountEmail);
+  const e=enrollment(s,owner);
+  if(e&&active(s,owner)){
+    demand(e.email===accountEmail,'Tester account email changed. Contact Project X.',409);
+    return {required:false,active:true,status:'ACTIVE',accepted_at:e.accepted_at,agreement_version:e.agreement_version};
+  }
+  return {required:Boolean(invitation),active:false,status:invitation?'INVITED':status(s,owner).status};
+}
+function presentForAccount(s,owner,accountEmail){
+  const view=consentStatus(s,owner,accountEmail);
+  if(!view.required)return view;
+  return {...view,...presentInvitation(s,accountInvitation(s,owner,accountEmail),owner,accountEmail)};
+}
+function acceptForAccount(s,owner,accountEmail,body){
+  const i=accountInvitation(s,owner,accountEmail);
+  demand(i,'No pending tester agreement is available for this account.',403);
+  return acceptInvitation(s,i,owner,accountEmail,body);
+}
+module.exports={agreement,db,active,known,status,invite,present,accept,revoke,enrollment,evidence,authority,consentStatus,presentForAccount,acceptForAccount};
+

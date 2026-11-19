@@ -482,6 +482,8 @@ app.get('/api/sessions', authenticatedMember, requireCaptureAccess, async (req, 
 });
 
 app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCaptureAccess, async (req, res, next) => {
+  return require('./tester-consent-routes').requireAcceptance(songCommerceStore)(req,res,next);
+}, async (req, res, next) => {
   try {
     const config = JSON.parse(await fsp.readFile(SECTION_CONFIG, 'utf8'));
     const promptsReady = config.prompts_approved === true && config.sections.length === SECTION_COUNT && config.sections.every(section => section.title && section.instructions);
@@ -942,6 +944,7 @@ const songCommerceStore = require('./song-commerce-routes').attach(app, {
   dataDir:DATA_DIR, config:songCommerceConfig, express, transferAuth, verifySigned,
   consumeTicket, sign, directoryBytes, maxStoreBytes:MAX_STORE_BYTES, origin:'https://sdp-backend-6xt7.onrender.com'
 });
+require('./tester-consent-routes').attach(app, {root:ROOT,store:songCommerceStore,authenticatedMember,requireSameOrigin});
 const customerSongRequests = require('./customer-song-requests').attach(app, {
   dataDir:DATA_DIR, config:songCommerceConfig, transferAuth,
   freezeMessage:birthdayMessageBridge.freezeForCommit
@@ -979,3 +982,4 @@ async function start() {
 
 if (require.main === module) start().catch(error => { console.error(error); process.exit(1); });
 module.exports = { app, start, sign, verifySigned, sha256 };
+

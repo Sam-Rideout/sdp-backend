@@ -93,6 +93,9 @@ function createStore(directory, config={}) {
   }
   return {
     testerStatus:owner=>transaction(s=>testers.status(s,owner)),
+    testerConsentStatus:(owner,email)=>transaction(s=>testers.consentStatus(s,owner,email)),
+    presentTesterForAccount:(owner,email)=>transaction(s=>testers.presentForAccount(s,owner,email)),
+    acceptTesterForAccount:(owner,email,body)=>transaction(s=>testers.acceptForAccount(s,owner,email,body)),
     testerKnown:owner=>transaction(s=>testers.known(s,owner)),
     testerInvitedEmail:email=>transaction(s=>Object.values(testers.db(s).invitations).some(i=>i.email===email)),
     inviteTester:body=>transaction(s=>testers.invite(s,body)),
@@ -265,4 +268,5 @@ function createStore(directory, config={}) {
   };
 }
 module.exports={createStore,PRICES,PLANS,minor,digest,demand};
+
 

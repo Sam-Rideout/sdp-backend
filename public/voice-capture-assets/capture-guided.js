@@ -148,7 +148,17 @@ async function guidedRecordTest(){
 function guidedStopTest(){if(guidedTestRecorder&&guidedTestRecorder.state!=='inactive'){clearTimeout(guidedTestTimer);$('guidedTestStop').disabled=true;guidedTestRecorder.stop();}}
 $('guidedBegin').addEventListener('click',()=>{if(config?.capture_enabled)guidedShow('startCard');});
 $('guidedConsentBack').addEventListener('click',()=>guidedShow('guidedIntro'));
-$('guidedConsentNext').addEventListener('click',()=>{const accepted=config?.capture_mode==='LIMITED_HELPER_PILOT'?$('pilotUnderstood').checked:customerConsentAccepted();if(config?.capture_enabled&&accepted){guidedShow('guidedMic');$('create').hidden=false;guidedConsentUpdate();}});
+$('guidedConsentNext').addEventListener('click',async()=>{
+ const accepted=config?.capture_mode==='LIMITED_HELPER_PILOT'?$('pilotUnderstood').checked:customerConsentAccepted();
+ if(!config?.capture_enabled||!accepted)return;
+ $('guidedConsentNext').disabled=true;
+ try{
+  if(await window.PXTesterConsent.ensure()){
+   guidedShow('guidedMic');$('create').hidden=false;
+  }
+ }catch(error){setStatus(error.message);}
+ finally{guidedConsentUpdate();}
+});
 $('guidedMicBack').addEventListener('click',()=>guidedShow(activeSession?'captureCard':'startCard'));
 $('guidedTestRecord').addEventListener('click',guidedRecordTest);$('guidedTestStop').addEventListener('click',guidedStopTest);
 $('guidedTestRetry').addEventListener('click',()=>{if(!guidedMicBusy)guidedTestClear();});
@@ -163,3 +173,4 @@ window.addEventListener('pagehide',()=>{guidedTestGeneration++;guidedTestRelease
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&guidedMicBusy)guidedStopTest();});
 guidedSetupSelectors();guidedJourney();
 initialize().then(()=>{if(!progressReturnMode&&config&&$('account').textContent==='Signed in to Project X.'&&!activeSession)guidedShow('guidedIntro',true);guidedSessionList();guidedConsentUpdate();});
+
