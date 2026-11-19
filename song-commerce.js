@@ -55,9 +55,24 @@ function applyPayment(s,paymentId) {
   demand(r.state==='PAYMENT_PENDING'&&r.approved_at&&r.preview_sha256===intent.preview_sha256,'Payment approval changed.');
   authorize(r,'PAYMENT',paymentId);intent.state='SUCCESSFUL';
 }
+// Serialize this process's callers for the same store before acquiring the disk lock.
+// The disk lock still rejects a writer in another process; no lock is removed or bypassed.
+const storeQueues = new Map();
+function queuedStoreOperation(directory, operation) {
+  const key = path.resolve(directory);
+  const previous = storeQueues.get(key) || Promise.resolve();
+  const result = previous.then(operation);
+  const tail = result.then(() => undefined, () => undefined);
+  storeQueues.set(key, tail);
+  void tail.then(() => {
+    if (storeQueues.get(key) === tail) storeQueues.delete(key);
+  });
+  return result;
+}
 function createStore(directory, config={}) {
   const stateFile=path.join(directory,'State.json'),lock=path.join(directory,'Write.lock');
-  async function transaction(fn) {
+  function transaction(fn) {
+    return queuedStoreOperation(directory, async () => {
     await fs.mkdir(directory,{recursive:true,mode:0o700});
     try {await fs.mkdir(lock);} catch(e) {if(e.code==='EEXIST') demand(false,'Another commerce update is running. Retry shortly.',503);throw e;}
     try {
@@ -74,6 +89,7 @@ function createStore(directory, config={}) {
       } finally {await fs.unlink(temp).catch(e=>{if(e.code!=='ENOENT')throw e;});}
       return result;
     } finally {await fs.rmdir(lock);}
+    });
   }
   return {
     testerStatus:owner=>transaction(s=>testers.status(s,owner)),
