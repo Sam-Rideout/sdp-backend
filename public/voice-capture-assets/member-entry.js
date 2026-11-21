@@ -13,7 +13,8 @@
   fragment.delete('ticket');
   const progress = new URLSearchParams(location.search).get('view') === 'progress' ||
     fragment.get('view') === 'progress';
-  const destination = location.pathname + (progress ? '?view=progress' : '');
+  const additional=new URLSearchParams(location.search).get('training')==='additional';
+  const destination = location.pathname + (additional ? '?training=additional' : progress ? '?view=progress' : '');
   history.replaceState(null, '', destination);
   const status = document.getElementById('signInStatus');
   status.textContent = 'Connecting your signed-in Project X account…';
@@ -30,3 +31,4 @@
     showSignIn();
   }
 })();
+

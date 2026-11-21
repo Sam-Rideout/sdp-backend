@@ -195,6 +195,7 @@ function attachProfileStatus(app, context) {
         };
         try { validateRecord(record, manifest); }
         catch { return res.status(400).json({ error: 'Invalid profile status or missing certified-model evidence.' }); }
+        if(body.status==='READY'&&manifest.additional_training)await context.validateAdditional(manifest,body);
         // Every publication stays bound to its verified owned session.
         if(body.status==='READY'){
           const directory=path.join(dataDir,'voice-profile-certificates',hash(manifest.owner_member_id));
@@ -216,7 +217,8 @@ function attachProfileStatus(app, context) {
     });
   require('./existing-profile-status').attachExistingProfileStatus(app, context, catalog);
   return {snapshot,setConsentView:catalog.setConsentView, readyProfile:catalog.readyProfile,
-    selectableProfile:catalog.selectableProfile, profiles:catalog.records};
+    selectableProfile:catalog.selectableProfile, profiles:catalog.records, ownedSessions, recordFor:catalog.recordFor};
 }
 
 module.exports = { attachProfileStatus };
+

@@ -2,6 +2,9 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const progressReturnMode=new URLSearchParams(location.search).get('view')==='progress'||new URLSearchParams(location.hash.slice(1)).get('view')==='progress';
+const additionalTrainingMode=new URLSearchParams(location.search).get('training')==='additional';
+let additionalTrainingNotice='';
+let additionalTrainingProfiles=[];
 let config = null, activeSession = null, mediaRecorder = null, stream = null;
 let chunks = [], takeBlob = null, takeUrl = null, startedAt = 0, takeDuration = 0, tick = null, busy = false;
 let audioContext = null, analyser = null, meterSamples = null, meterFrame = null, recordingInterrupted = false, activeSectionId = 1, takeRecordingSetup = null;
@@ -195,7 +198,7 @@ function recordingSessionLabel(session) {
 }
 
 async function refreshSessions() {
-  const data=await api('/api/sessions'); const sessions=data.sessions||[];
+  const data=await api('/api/sessions'); const sessions=(data.sessions||[]).filter(s=>!additionalTrainingMode||s.additional_training); 
   const wrap=$('existingWrap'), select=$('sessions'); select.innerHTML='';
   const resumable=sessions.filter(item=>['RECORDING','READY_FOR_TRANSFER'].includes(item.status)||(item.program==='CUSTOMER'&&item.phone_training?.accepted===true&&item.status==='TRANSFERRED_AUDIO_DELETED'));
   if(resumable.length) {
@@ -210,7 +213,7 @@ async function refreshSessions() {
 async function resumeOpenRecordingAfterConflict(error) {
   if(error.status!==409)return false;
   const sessions=await refreshSessions();
-  const open=sessions.filter(item=>item.status==='RECORDING');
+  const open=sessions.filter(item=>item.status==='RECORDING'&&(!additionalTrainingMode||item.additional_training));
   if(open.length===1) {
     await selectSession(open[0].session_id);
     setStatus('Signed in. Your saved recording session is ready to continue.','account');
@@ -233,7 +236,7 @@ function retentionChoice() {
 }
 
 function customerConsentAccepted() {
-  return Boolean(retentionChoice()) && $('ageOwnVoice').checked && (config?.recording_setup_enabled!==true||typeof setupComplete!=='function'||setupComplete()) && window.PXTesterConsent?.ready()===true;
+  return (!additionalTrainingMode||($('additionalAgree').checked&&additionalTrainingProfiles.some(p=>p.voice_profile_id===$('additionalProfile').value))) && Boolean(retentionChoice()) && $('ageOwnVoice').checked && (config?.recording_setup_enabled!==true||typeof setupComplete!=='function'||setupComplete()) && window.PXTesterConsent?.ready()===true;
 }
 
 function syncConsentControls(changedId='') {
@@ -245,7 +248,7 @@ function syncConsentControls(changedId='') {
 
 async function selectSession(id) {
   if(busy||takeBlob){setStatus('Wait for saving to finish, or retry or discard the unsaved take before changing sessions.','sectionStatus');return;}
-  const data=await api(`/api/sessions/${encodeURIComponent(id)}`); if(data?.session?.session_id!==id)throw new Error('The recording-session response did not match. Please reopen your session.'); activeSession=data.session;if(window.PXRestoreRecordingSetup)window.PXRestoreRecordingSetup(activeSession.recording_setup||null);
+  const data=await api(`/api/sessions/${encodeURIComponent(id)}`); if(data?.session?.session_id!==id)throw new Error('The recording-session response did not match. Please reopen your session.'); if(additionalTrainingMode&&!data.session.additional_training)throw new Error('This is a separate recording session. Return to My Orders before continuing it.'); activeSession=data.session;if(window.PXRestoreRecordingSetup)window.PXRestoreRecordingSetup(activeSession.recording_setup||null);
   $('transferCompleteCard').hidden=true;
   if(activeSession.program==='CUSTOMER'&&activeSession.phone_training?.accepted===true){showPhoneTraining(activeSession);return;}
   $('phoneTrainingCard').hidden=true;
@@ -340,9 +343,25 @@ async function initialize() {
       showProgressReturn('Checking your sign-in and finding your processing session…');
     }
     const hash=new URLSearchParams(location.hash.slice(1)); const ticket=hash.get('ticket');
-    if(ticket){history.replaceState(null,'',location.pathname+(progressReturnMode?'?view=progress':'')); await api('/api/session/exchange',{method:'POST',headers:csrfHeaders(),body:JSON.stringify({ticket})});}
+    if(ticket){history.replaceState(null,'',location.pathname+(additionalTrainingMode?'?training=additional':progressReturnMode?'?view=progress':'')); await api('/api/session/exchange',{method:'POST',headers:csrfHeaders(),body:JSON.stringify({ticket})});}
     config=await api('/api/config');
     await window.PXTesterConsent.load();
+    if(additionalTrainingMode){
+      const training=await api('/api/additional-training',{cache:'no-store'});
+      if(training?.ok!==true||!Array.isArray(training.profiles)||!training.profiles.length)throw new Error('No retained, available voice profile can receive additional recordings. Return to My Orders to check your profile and storage consent.');
+      additionalTrainingProfiles=training.profiles;additionalTrainingNotice=training.notice_text;
+      $('additionalTrainingPanel').hidden=false;$('additionalNotice').textContent=additionalTrainingNotice;
+      const select=$('additionalProfile');select.innerHTML='';
+      for(const p of training.profiles){const option=document.createElement('option');option.value=p.voice_profile_id;option.textContent=`${p.label} · ${p.setup} · ${new Date(p.created_at).toLocaleDateString()}`;select.appendChild(option);}
+      $('additionalAgree').addEventListener('change',()=>syncConsentControls());
+      select.addEventListener('change',()=>{$('additionalAgree').checked=false;syncConsentControls();});
+      $('capturePageTitle').textContent='Add more voice recordings';
+      $('guidedIntro').querySelector('h1').textContent='Add more recordings to your voice profile.';
+      $('guidedIntro').querySelector('.lede').textContent='We will train and verify an updated version using your retained training audio and these new recordings. Your current profile stays available.';
+      $('guidedBegin').textContent='Add More Voice Recordings →';
+      $('guidedIntro').querySelector('.actions .fine-print').textContent='Record another guided session to improve your selected profile.';
+      $('existingWrap').parentElement.querySelector('p').textContent='Open an unfinished additional-recording session to continue it. Your existing verified profiles are preserved.';
+    }
     // Keep the eight required training prompts unchanged.
     if(config.special_message)config.sections.push(config.special_message);
     const pilotMode=config.capture_mode==='LIMITED_HELPER_PILOT';
@@ -374,7 +393,7 @@ async function initialize() {
         ? 'New sessions are disabled until the consent wording and all eight section prompts are approved.'
         : 'New sessions are disabled until all eight section prompts are configured.');
     $('setupBlock').hidden=config.capture_enabled;
-    if(config.capture_enabled && config.supplied_recordings_enabled){const a=document.createElement('a');a.href='/voice-recording-upload';a.textContent='Use an existing voice recording instead';$('startCard').appendChild(a);}
+    if(!additionalTrainingMode && config.capture_enabled && config.supplied_recordings_enabled){const a=document.createElement('a');a.href='/voice-recording-upload';a.textContent='Use an existing voice recording instead';$('startCard').appendChild(a);}
     $('deleteAfterOrder').addEventListener('change',()=>syncConsentControls('deleteAfterOrder'));
     $('futurePurchases').addEventListener('change',()=>syncConsentControls('futurePurchases'));
     $('developmentUse').addEventListener('change',()=>syncConsentControls('developmentUse'));
@@ -388,6 +407,7 @@ async function initialize() {
       const consentBody=pilotMode
         ? {pilot_consent:{accepted:true,version:config.pilot_consent_version,understood:$('pilotUnderstood').checked}}
         : {consent:{accepted:true,version:config.consent_version,retention_choice:selectedRetention,development_use:$('developmentUse').checked,adult_confirmed:$('ageOwnVoice').checked,own_voice_confirmed:$('ageOwnVoice').checked}};
+      if(additionalTrainingMode)consentBody.additional_training={parent_voice_profile_id:$('additionalProfile').value,accepted:$('additionalAgree').checked,notice_text:additionalTrainingNotice};
       if(!pilotMode&&config.recording_setup_enabled===true&&config.training_source!=='SUPPLIED_RECORDING')consentBody.recording_setup=window.PXGetSessionRecordingSetup?.();
       try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify(consentBody)});if(!pilotMode&&data.session.consent?.retention_choice==='FUTURE_PURCHASES')window.PXShowConsentReminder(data.session.consent.storage_expires_at,'signed');await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
       catch(error){
@@ -817,4 +837,5 @@ $('retryProgressReturn').addEventListener('click',async()=>{
   finally{progressReturnBusy=false;$('retryProgressReturn').disabled=false;}
 });
 // Initialization is started by capture-guided.js after the page is wired.
+
 

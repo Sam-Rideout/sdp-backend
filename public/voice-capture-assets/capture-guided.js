@@ -58,8 +58,8 @@ function guidedSelected(){
 }
 function guidedProgress(id='phoneTrainingCard'){guidedShow(id,true);}
 function guidedResetIntro(){
- guidedTestClear();for(const id of ['ageOwnVoice','deleteAfterOrder','futurePurchases','developmentUse','pilotUnderstood'])$(id).checked=false;guidedInitialBrowser=null;for(const id of ['setupDevice','setupMic','setupListening','takeSetupDevice','takeSetupMic','takeSetupListening'])$(id).value='';
- $('guidedMessageDraft').value='';history.replaceState(null,'',location.pathname);guidedShow('guidedIntro',true);guidedSessionList();syncConsentControls();
+ guidedTestClear();for(const id of ['ageOwnVoice','deleteAfterOrder','futurePurchases','developmentUse','pilotUnderstood','additionalAgree'])$(id).checked=false;guidedInitialBrowser=null;for(const id of ['setupDevice','setupMic','setupListening','takeSetupDevice','takeSetupMic','takeSetupListening'])$(id).value='';
+ $('guidedMessageDraft').value='';history.replaceState(null,'',location.pathname+(additionalTrainingMode?'?training=additional':''));guidedShow('guidedIntro',true);guidedSessionList();syncConsentControls();
 }
 function guidedLesson(section){
  if(!section)return;
@@ -173,4 +173,5 @@ window.addEventListener('pagehide',()=>{guidedTestGeneration++;guidedTestRelease
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&guidedMicBusy)guidedStopTest();});
 guidedSetupSelectors();guidedJourney();
 initialize().then(()=>{if(!progressReturnMode&&config&&$('account').textContent==='Signed in to Project X.'&&!activeSession)guidedShow('guidedIntro',true);guidedSessionList();guidedConsentUpdate();});
+
 

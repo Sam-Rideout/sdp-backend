@@ -481,7 +481,7 @@ app.get('/api/sessions', authenticatedMember, requireCaptureAccess, async (req, 
   } catch (error) { next(error); }
 });
 
-app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCaptureAccess, async (req, res, next) => {
+app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCaptureAccess, (req,res,next)=>additionalTraining.creationLock(req,res,next), async (req, res, next) => {
   return require('./tester-consent-routes').requireAcceptance(songCommerceStore)(req,res,next);
 }, async (req, res, next) => {
   try {
@@ -576,6 +576,12 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
       } catch { /* An incomplete session folder is not an authorized session. */ }
     }
     const now = new Date().toISOString();
+    let additionalEvidence = null;
+    if (req.body?.additional_training) {
+      if(sourceMode !== 'GUIDED_RECORDING') return res.status(400).json({error:'Additional training uses the guided recording sections.'});
+      additionalEvidence = await additionalTraining.evidence(req.memberId, req.body.additional_training, now);
+      await additionalTraining.assertIdle(req.memberId);
+    }
     const sessionId = crypto.randomUUID();
     const consentEvidence = {
       notice: config.consent_notice,
@@ -589,6 +595,7 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
       customer_identity: customerIdentity,
       program: 'CUSTOMER',
       training_source: sourceMode,
+      ...(additionalEvidence ? {additional_training:additionalEvidence} : {}),
       capture_scope: config.customer_capture_scope,
       session_id: sessionId,
       owner_member_id: req.memberId,
@@ -765,6 +772,7 @@ require('./supplied-recording').attachSuppliedRecording(app, {express, authentic
 app.post('/api/sessions/:sessionId/complete', authenticatedMember, requireSameOrigin, requireCaptureAccess, ownedManifest, async (req, res, next) => {
   try {
     const manifest = req.manifest;
+    if(manifest.additional_training)await additionalTraining.validateManifest(manifest);
     if (manifest.status !== 'RECORDING') return res.status(409).json({ error: 'This session is already complete.' });
     const config = JSON.parse(await fsp.readFile(SECTION_CONFIG, 'utf8'));
     const missing = config.sections.filter(section => section.title && section.instructions)
@@ -847,7 +855,8 @@ app.post('/api/transfer/sessions/:sessionId/confirm', transferAuth, express.json
 // Readiness is published only by the protected local processing bridge.
 const profileStatusBridge = require('./voice-profile-status').attachProfileStatus(app, {
   dataDir: DATA_DIR, sessionDir: SESSION_DIR, readManifest, safeSessionId,
-  verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth, customerTestAccess
+  verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth, customerTestAccess,
+  validateAdditional: (manifest,body) => additionalTraining.validatePublication(manifest,body)
 });
 
 profileErasure.attach(app, transferAuth);
@@ -860,6 +869,10 @@ const profileConsentService = require('./profile-consent').attachProfileConsent(
   secret: process.env.WIX_HANDOFF_SECRET, authenticatedMember, requireSameOrigin, transferAuth
 });
 profileStatusBridge.setConsentView(profileConsentService.state);
+const additionalTraining = require('./additional-training').attachAdditionalTraining(app, {
+  dataDir:DATA_DIR, authenticatedMember, transferAuth, readManifest, safeSessionId,
+  profiles:profileStatusBridge.profiles, ownedSessions:profileStatusBridge.ownedSessions, recordFor:profileStatusBridge.recordFor
+});
 app.get('/profile-consent',(req,res)=>{res.set('Cache-Control','no-store');res.set('Referrer-Policy','no-referrer');res.sendFile(path.join(ROOT,'public/profile-consent.html'));});
 
 require('./profile-deletion-progress').attachDeletionProgress(app, {
@@ -982,4 +995,5 @@ async function start() {
 
 if (require.main === module) start().catch(error => { console.error(error); process.exit(1); });
 module.exports = { app, start, sign, verifySigned, sha256 };
+
 
