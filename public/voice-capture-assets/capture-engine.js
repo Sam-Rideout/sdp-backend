@@ -246,9 +246,22 @@ function syncConsentControls(changedId='') {
   $('create').disabled=!config?.capture_enabled||!accepted||!guidedMicPassed; if(typeof guidedConsentUpdate==='function')guidedConsentUpdate();
 }
 
+function additionalProfileLabel(profile) {
+  return `${profile.label} · ${profile.setup} · ${new Date(profile.created_at).toLocaleString()}`;
+}
+function showAdditionalTrainingTarget(session) {
+  const note=$('capturePageIntroduction');
+  if(!session.additional_training){note.hidden=true;note.textContent='';return;}
+  const profile=additionalTrainingProfiles.find(p=>p.voice_profile_id===session.additional_training.parent_voice_profile_id);
+  note.textContent=profile
+    ? 'Additional recordings for: '+additionalProfileLabel(profile)
+    : 'These additional recordings are linked to the profile selected when this session began.';
+  note.hidden=false;
+}
+
 async function selectSession(id) {
   if(busy||takeBlob){setStatus('Wait for saving to finish, or retry or discard the unsaved take before changing sessions.','sectionStatus');return;}
-  const data=await api(`/api/sessions/${encodeURIComponent(id)}`); if(data?.session?.session_id!==id)throw new Error('The recording-session response did not match. Please reopen your session.'); if(additionalTrainingMode&&!data.session.additional_training)throw new Error('This is a separate recording session. Return to My Orders before continuing it.'); activeSession=data.session;if(window.PXRestoreRecordingSetup)window.PXRestoreRecordingSetup(activeSession.recording_setup||null);
+  const data=await api(`/api/sessions/${encodeURIComponent(id)}`); if(data?.session?.session_id!==id)throw new Error('The recording-session response did not match. Please reopen your session.'); if(additionalTrainingMode&&!data.session.additional_training)throw new Error('This is a separate recording session. Return to My Orders before continuing it.'); activeSession=data.session;showAdditionalTrainingTarget(activeSession);if(window.PXRestoreRecordingSetup)window.PXRestoreRecordingSetup(activeSession.recording_setup||null);
   $('transferCompleteCard').hidden=true;
   if(activeSession.program==='CUSTOMER'&&activeSession.phone_training?.accepted===true){showPhoneTraining(activeSession);return;}
   $('phoneTrainingCard').hidden=true;
@@ -352,9 +365,16 @@ async function initialize() {
       additionalTrainingProfiles=training.profiles;additionalTrainingNotice=training.notice_text;
       $('additionalTrainingPanel').hidden=false;$('additionalNotice').textContent=additionalTrainingNotice;
       const select=$('additionalProfile');select.innerHTML='';
-      for(const p of training.profiles){const option=document.createElement('option');option.value=p.voice_profile_id;option.textContent=`${p.label} · ${p.setup} · ${new Date(p.created_at).toLocaleDateString()}`;select.appendChild(option);}
+      const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent='Choose the profile you want to update';placeholder.disabled=true;placeholder.selected=true;select.appendChild(placeholder);
+      for(const p of training.profiles){const option=document.createElement('option');option.value=p.voice_profile_id;option.textContent=additionalProfileLabel(p);select.appendChild(option);}
+      select.value='';
+      $('additionalAgree').checked=false;$('additionalAgree').disabled=true;
       $('additionalAgree').addEventListener('change',()=>syncConsentControls());
-      select.addEventListener('change',()=>{$('additionalAgree').checked=false;syncConsentControls();});
+      select.addEventListener('change',()=>{
+        $('additionalAgree').checked=false;
+        $('additionalAgree').disabled=!additionalTrainingProfiles.some(p=>p.voice_profile_id===select.value);
+        syncConsentControls();
+      });
       $('capturePageTitle').textContent='Add more voice recordings';
       $('guidedIntro').querySelector('h1').textContent='Add more recordings to your voice profile.';
       $('guidedIntro').querySelector('.lede').textContent='We will train and verify an updated version using your retained training audio and these new recordings. Your current profile stays available.';
@@ -837,5 +857,6 @@ $('retryProgressReturn').addEventListener('click',async()=>{
   finally{progressReturnBusy=false;$('retryProgressReturn').disabled=false;}
 });
 // Initialization is started by capture-guided.js after the page is wired.
+
 
 
