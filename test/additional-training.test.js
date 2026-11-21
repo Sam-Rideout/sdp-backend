@@ -26,7 +26,7 @@ test('requires explicit current notice and enablement',async()=>{
  delete process.env.PX_ADDITIONAL_TRAINING_ENABLED;try{await assert.rejects(service.evidence(owner,request,'now'));}finally{process.env.PX_ADDITIONAL_TRAINING_ENABLED='true';}
 });
 test('blocks a second recording and unverified processing; completed and failed sessions do not block',async()=>{
- for(const m of [{status:'RECORDING'},{status:'READY_FOR_TRANSFER'},{status:'TRANSFERRED_AUDIO_DELETED',record:{status:'PROCESSING'}}])await assert.rejects(fixture([row()],[m]).service.assertIdle(owner));
+ for(const m of [{status:'RECORDING'},{status:'READY_FOR_TRANSFER',contract_version:'PX-TIER2-PROFILE-CONTRACT-1.0'},{status:'TRANSFERRED_AUDIO_DELETED',contract_version:'PX-TIER2-PROFILE-CONTRACT-1.0',record:{status:'PROCESSING'}}])await assert.rejects(fixture([row()],[m]).service.assertIdle(owner));
  for(const status of ['READY','FAILED','REVOKED'])await fixture([row()],[{status:'TRANSFERRED_AUDIO_DELETED',record:{status}}]).service.assertIdle(owner);
 });
 test('rechecks consent and withdrawal at publication, while parent stays intact',async()=>{
@@ -55,3 +55,30 @@ test('old PC or wrong-parent certification cannot release an additional profile'
  const certificate=JSON.stringify({additional_training_source:{...proof,authorization:Object.fromEntries(Object.entries(a).reverse())}});
  assert.equal((await service.validatePublication(m,{certificate_json:certificate})).voice_profile_id,id);
 });
+
+async function withHistoricalSession(fn,{phase='READY',record=null,legacy=false,claimed=true,stateChanges={},requestChanges={},rawState}={}){
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'px-finished-capture-'));
+ const manifest={session_id:sid,owner_member_id:owner,status:'TRANSFERRED_AUDIO_DELETED',contract_version:legacy?'OLD-CAPTURE':'PX-TIER2-PROFILE-CONTRACT-1.0',consent:{version:'approved-consent'},record,
+  phone_training:claimed?{accepted:true,member_id:owner,session_id:sid,consent_version:'approved-consent',...requestChanges}:undefined};
+ const state={phase,job_id:'PXPHONE-synthetic',model_id:'synthetic-model',enrollment_id:'PXTRAIN-synthetic',...stateChanges};
+ const file=path.join(dir,'phone-training',sid,'state.json');
+ if(phase!==null||rawState!==undefined){await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,rawState===undefined?JSON.stringify(state):rawState);}
+ const {c}=fixture([row()],[manifest]);const service=createAdditionalTraining({...c,dataDir:dir});
+ try{await fn(service,manifest,file);}finally{await fs.rm(dir,{recursive:true,force:true});}
+}
+test('a historical certified READY phone receipt does not become a running job when its per-session catalog row is absent',async()=>withHistoricalSession(async(service,m,file)=>{
+ const before=await fs.readFile(file,'utf8');await service.assertIdle(owner);assert.equal(await fs.readFile(file,'utf8'),before);assert.equal(m.record,null);
+}));
+test('confirmed completed phone training overrides stale matching PROCESSING display metadata',async()=>withHistoricalSession(service=>service.assertIdle(owner),{record:{status:'PROCESSING',voice_model_id:'synthetic-model'}}));
+test('archived unclaimed capture is excluded without changing its manifest',async()=>withHistoricalSession(async(service,m)=>{const before=structuredClone(m);await service.assertIdle(owner);assert.deepEqual(m,before);},{legacy:true,phase:null,claimed:false}));
+for(const phase of ['QUEUED','PREPARING','TRAINING','KEY_SELECTION','CERTIFYING'])test('keeps '+phase+' training blocked',async()=>withHistoricalSession(service=>assert.rejects(service.assertIdle(owner)),{phase}));
+test('legacy protocol cannot hide a live processing claim',async()=>withHistoricalSession(service=>assert.rejects(service.assertIdle(owner)),{legacy:true,phase:'TRAINING',record:{status:'PROCESSING'}}));
+test('current unconfirmed status remains blocked and is not falsely described as active training',async()=>withHistoricalSession(service=>assert.rejects(service.assertIdle(owner),/unconfirmed training status/),{phase:null}));
+for(const requestChanges of [{member_id:'another-member'},{session_id:child},{accepted:false},{consent_version:'old-consent'}])test('READY receipt must bind this exact owner, session and consent',async()=>withHistoricalSession(service=>assert.rejects(service.assertIdle(owner)),{requestChanges}));
+test('READY receipt does not release another model claim',async()=>withHistoricalSession(service=>assert.rejects(service.assertIdle(owner)),{record:{status:'PROCESSING',voice_model_id:'other-model'}}));
+test('incomplete READY metadata fails closed',async()=>withHistoricalSession(service=>assert.rejects(service.assertIdle(owner)),{stateChanges:{enrollment_id:''}}));
+test('corrupt phone-state evidence fails closed',async()=>withHistoricalSession(service=>assert.rejects(service.assertIdle(owner)),{rawState:'not JSON'}));
+test('completion of one capture cannot hide a separate active capture',async()=>withHistoricalSession(async(service,m,file)=>{
+ const other={session_id:child,owner_member_id:owner,status:'TRANSFERRED_AUDIO_DELETED',contract_version:m.contract_version,record:{status:'PROCESSING'}};
+ const {c}=fixture([row()],[m,other]);await assert.rejects(createAdditionalTraining({...c,dataDir:path.dirname(path.dirname(path.dirname(file)))}).assertIdle(owner));
+}));
