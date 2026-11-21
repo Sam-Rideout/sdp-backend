@@ -46,13 +46,42 @@ function createAdditionalTraining(c){
     ||!['parent_source_sha256','parent_intake_sha256'].every(k=>/^[a-f0-9]{64}$/.test(proof[k]||'')))fail('Certified additional-training lineage is missing or differs.',400);
   return r;
  }
+ async function phoneState(m){
+  if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(m.session_id||''))return null;
+  const file=path.join(c.dataDir,'phone-training',m.session_id,'state.json');
+  try{
+   const info=await fs.lstat(file);
+   if(!info.isFile()||info.isSymbolicLink()||info.size>65536)fail('Existing voice-training status needs Project X review.');
+   const state=JSON.parse(await fs.readFile(file,'utf8'));
+   if(!state||typeof state!=='object'||Array.isArray(state))fail('Existing voice-training status needs Project X review.');
+   return state;
+  }catch(e){if(e.code==='ENOENT')return null;throw e;}
+ }
+ function confirmedFinished(m,r,state,member){
+  // This protected READY receipt can only be written after certified profile
+  // publication. It is terminal and the pickup worker cannot train it again.
+  const request=m.phone_training;
+  return m.status==='TRANSFERRED_AUDIO_DELETED'&&state?.phase==='READY'
+   &&request?.accepted===true&&request.member_id===member&&request.session_id===m.session_id
+   &&request.consent_version===m.consent?.version
+   &&['job_id','model_id','enrollment_id'].every(k=>typeof state[k]==='string'&&state[k].length>0&&state[k].length<=200)
+   &&(!r?.voice_model_id||r.voice_model_id===state.model_id);
+ }
  async function assertIdle(member){
+  const contractVersion=require('./profile-contract').policy.schema_version;
   for(const m of await c.ownedSessions(member)){
    if(m.status==='RECORDING')fail('Resume or delete your open recording session before starting another.');
-   if(['READY_FOR_TRANSFER','TRANSFERRED_AUDIO_DELETED'].includes(m.status)){
-    const r=await c.recordFor(member,m);
-    if(!r||r.status==='PROCESSING')fail('A voice profile is already being prepared. Wait for it before starting another recording session.');
-   }
+   if(!['READY_FOR_TRANSFER','TRANSFERRED_AUDIO_DELETED'].includes(m.status))continue;
+   const r=await c.recordFor(member,m);
+   if(r&&['READY','FAILED','REVOKED'].includes(r.status))continue;
+   const state=await phoneState(m);
+   if(confirmedFinished(m,r,state,member))continue;
+   // Older captures without any processing claim are not executable Tier 2
+   // jobs. The recorder and pickup already exclude that archived protocol.
+   if(m.contract_version!==contractVersion&&!r&&!state)continue;
+   if(r?.status==='PROCESSING'||['QUEUED','PREPARING','TRAINING','KEY_SELECTION','CERTIFYING'].includes(state?.phase))
+    fail('A voice profile is already being prepared. Wait for it before starting another recording session.');
+   fail('An existing recording session has an unconfirmed training status. Project X needs to check session '+m.session_id+' before another recording session starts.');
   }
  }
  async function creationLock(req,res,next){
@@ -81,3 +110,4 @@ function attachAdditionalTraining(app,c){
  return service;
 }
 module.exports={NOTICE,SCHEMA,createAdditionalTraining,attachAdditionalTraining};
+
