@@ -108,7 +108,17 @@ function createStore(directory, config={}) {
     listTesters:()=>transaction(s=>({invitations:Object.values(testers.db(s).invitations).map(({token_sha256,presentation,...x})=>x),enrollments:Object.values(testers.db(s).enrollments)})),
     testerAdmission:(owner,email,fn)=>transaction(s=>{const e=testers.enrollment(s,owner);return fn(e&&testers.active(s,owner)?testers.authority(s,owner,testers.evidence(e),email):null);}),
     checkPromotion:(owner,promotion,email)=>transaction(s=>testers.authority(s,owner,promotion,email)),
+    async reserveFailedCancellation(proof,evidence) {return transaction(s=>{
+      demand(!Object.values(s.reviews).some(r=>r.selection_id===proof.selection_id||r.order_id===proof.order_id||r.run_id===proof.run_id),
+        'A review, payment or credit may exist. Automatic cancellation requires operator review.');
+      const records=s.failed_cancellations||(s.failed_cancellations={});
+      const old=records[proof.selection_id];
+      demand(!old||old.evidence_sha256===evidence,'Failure cancellation evidence changed.');
+      records[proof.selection_id]=old||{owner:proof.owner_member_id,order_id:proof.order_id,run_id:proof.run_id,evidence_sha256:evidence,reserved_at:stamp()};
+      return {ok:true,evidence_sha256:evidence};
+    });},
     async publish(x) {return transaction(s=>{
+      demand(!s.failed_cancellations?.[x.selection_id],'This failed song request has been closed. Choose another song.');
       demand(uuid(x.review_id)&&uuid(x.selection_id)&&id(x.owner)&&/^PXO-\d{6}$/.test(x.order_id)
         &&/^PXR-\d{6}$/.test(x.run_id)&&PRICES[x.product]&&sha(x.master_sha256)&&sha(x.preview_sha256)
         &&typeof x.title==='string'&&x.title.length>0&&x.title.length<=100
