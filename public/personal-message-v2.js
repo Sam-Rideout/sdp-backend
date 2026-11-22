@@ -46,16 +46,17 @@ function buttonState() {
   const existing = Boolean(savedState?.audio_available && savedState?.clip_id);
   const playable = Boolean(previewBlob || existing);
   el("consent").disabled = !ready;
+  el("start").hidden = playable;
   el("start").disabled = !ready;
+  el("stop").hidden = !recording;
   el("stop").disabled = !recording || busy;
   el("rerecord").hidden = !playable;
   el("rerecord").disabled = !ready;
   el("play").hidden = !playable;
-  el("play").disabled = !playable || recording || starting;
+  el("play").disabled = !playable || busy || recording || starting;
   el("skip").disabled = !ready;
-  el("next").disabled = busy || recording || starting;
-  el("save").hidden = !needsSave || saveAttempted;
-  el("save").disabled = !needsSave || saveAttempted || !ready;
+  el("next").disabled = !access || busy || recording || starting || needsSave ||
+    !(existing || savedState?.choice === "SKIPPED");
   el("retrySave").hidden = !needsSave || !saveAttempted;
   el("retrySave").disabled = !needsSave || !saveAttempted || !ready;
   el("player").hidden = !playable;
@@ -204,10 +205,10 @@ async function start() {
           voicedBlocks=0;
         }
       }
-      // Keep the hard cap authoritative. A take that hits it is never saved.
+      // Keep the hard cap authoritative, and save the captured take at natural speed.
       if(count>=Math.floor(sampleRate*PX_LIMIT))void stop(true);
       else if(speechStarted && count-lastVoiceSample >= Math.ceil(sampleRate*PX_SILENCE_SECONDS)){
-        status("Speech ended. Preparing your message for review...");
+        status("Speech ended. Saving your message...");
         void stop(false);
       }
     };
@@ -241,10 +242,6 @@ async function stop(timedOut = false) {
   stopPromise=(async()=>{
     try{
       await releaseMic();
-      if(timedOut || count >= Math.floor(sampleRate*PX_LIMIT)) {
-        status("8-second limit reached. This take was NOT saved because speech might be cut off. Re-record a shorter message and press Stop before the limit. Your previously saved message is unchanged.");
-        return;
-      }
       if(count<sampleRate*.1)throw new Error("The message is too short. Please try again.");
       if(!speechStarted)throw new Error("No clear speech was detected. Check your microphone and try again.");
       const joined=new Float32Array(count);
@@ -264,26 +261,32 @@ async function stop(timedOut = false) {
       needsSave=true;
       saveAttempted=false;
       showTime(duration);
-      status("Recording ready for review. Listen to the full message, then select Save This Message. Nothing has been uploaded yet.");
+      // Stay busy until saving is confirmed: timer and Stop cannot upload twice.
+      try{await upload(timedOut);}
+      catch{/* upload keeps the take and displays a retry action */}
     }catch(error){status("Recording could not be prepared: "+error.message);}
     finally{chunks=[];count=0;busy=false;stopPromise=null;buttonState();}
   })();
   return stopPromise;
 }
-async function upload() {
-  if(!access || locked || !previewBlob || !el("consent").checked)throw new Error("A consented recording is required.");
-  if(previewDuration<.1 || previewDuration>8.25)throw new Error("Invalid message length.");
-  const form=new FormData();
-  form.append("audio",previewBlob,"personal-message.wav");
-  form.append("duration_seconds",String(previewDuration));
-  form.append("consent_version",PX_CONSENT);
-  status("Saving your personal message...");
+async function upload(limitReached = false) {
   try{
+    if(!access || locked || !previewBlob || !el("consent").checked)throw new Error("Approve the message consent before saving.");
+    if(previewDuration<.1 || previewDuration>8.25)throw new Error("Invalid message length.");
+    const form=new FormData();
+    form.append("audio",previewBlob,"personal-message.wav");
+    form.append("duration_seconds",String(previewDuration));
+    form.append("consent_version",PX_CONSENT);
+    status("Saving your personal message...");
     const result=await api(PX_BASE+"/audio",{method:"POST",headers:{"X-PX-Message":"1"},body:form});
+    if(result.ok!==true || result.selection_id!==PX_SELECTION || result.choice!=="RECORDED" ||
+      !result.audio_available || !PX_UUID.test(result.clip_id || ""))throw new Error("The saved message could not be confirmed.");
     needsSave=false;
     saveAttempted=false;
     savedState=result;
-    status("Personal message saved successfully. You can listen, re-record, or select Next.");
+    status(limitReached
+      ? "Your 8-second message was saved automatically. Listen to check that your last words are complete. You can re-record, or select Next."
+      : "Personal message saved automatically. Listen to your message, then select Next. You can re-record if needed.");
     return result;
   }catch(error){
     needsSave=true;
@@ -320,21 +323,25 @@ function play() {
 }
 function next() {
   if(busy || recording || starting)return;
-  if(needsSave && !confirm("Your new recording has NOT been saved. Leave and discard this unsaved recording?"))return;
+  if(needsSave){status("Your message has not been saved. Select Retry Saving Message before continuing, or choose Continue Without a Message.");return;}
+  if(!access || !(savedState?.audio_available && savedState?.clip_id || savedState?.choice === "SKIPPED"))return;
   location.assign(PX_ORDERS_URL);
 }
 function discardObjectUrl() {if(previewUrl)URL.revokeObjectURL(previewUrl);}
 document.addEventListener("DOMContentLoaded",async()=>{
   el("start").addEventListener("click",start);
   el("stop").addEventListener("click",()=>{void stop(false);});
-  el("save").addEventListener("click",()=>{void retry();});
   el("rerecord").addEventListener("click",start);
   el("play").addEventListener("click",play);
   el("retrySave").addEventListener("click",()=>{void retry();});
   el("skip").addEventListener("click",()=>{void skip();});
   el("next").addEventListener("click",next);
   window.addEventListener("pagehide",discardObjectUrl);
+  window.addEventListener("beforeunload",event=>{
+    if(needsSave || busy || recording || starting){event.preventDefault();event.returnValue="";}
+  });
   buttonState();
   try{await connect();}
   catch(error){access=false;locked=true;status(error.message);buttonState();}
 });
+
