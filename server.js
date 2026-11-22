@@ -364,8 +364,9 @@ app.get('/consent', (req,res)=>{
   if(version!==undefined)return res.sendFile(file);
   fs.readFile(file,'utf8',(error,document)=>{
     if(error)return res.status(500).type('text').send('Unable to load consent terms.');
-    const theme='<link rel="stylesheet" href="/voice-capture-assets/consent-theme.css?v=20261116-1">';
-    res.type('html').send(document.replace('</head>',theme+'</head>'));
+    const theme='<link rel="stylesheet" href="/voice-capture-assets/consent-theme.css?v=20261122-back-about">';
+    const navigation='<nav class="px-consent-navigation" aria-label="Consent page navigation"><a class="px-consent-back" href="https://www.sdpsongs.ca/start-here" aria-label="Back to About">Back</a></nav>';
+    res.type('html').send(document.replace('</head>',theme+'</head>').replace('</main>',navigation+'</main>'));
   });
 });
 app.get('/pilot-consent', (req, res) => res.sendFile(path.join(ROOT, 'public', 'pilot-consent.html')));
@@ -995,5 +996,3 @@ async function start() {
 
 if (require.main === module) start().catch(error => { console.error(error); process.exit(1); });
 module.exports = { app, start, sign, verifySigned, sha256 };
-
-
