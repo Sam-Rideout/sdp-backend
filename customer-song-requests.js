@@ -1,6 +1,7 @@
 'use strict';
 const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
 const {PRICES,demand,createStore}=require('./song-commerce');
+const priceQuote=require('./song-price-quote');
 const uuid=x=>typeof x==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(x);
 async function read(file){try{return JSON.parse(await fs.readFile(file,'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}}
 async function write(file,value){const temp=file+'.'+crypto.randomUUID()+'.tmp';try{await fs.writeFile(temp,JSON.stringify(value),{flag:'wx',mode:0o600});await fs.rename(temp,file);}finally{await fs.unlink(temp).catch(e=>{if(e.code!=='ENOENT')throw e;});}}
@@ -79,11 +80,14 @@ function attach(app,c){
           demand(s.owner_member_id===a.sub&&/^PXC-\d{6}$/.test(s.customer_id||'')&&PRICES[product]
             &&['RECORDED','SKIPPED'].includes(frozen.message?.choice),'Customer selection or message authority differs.');
           demand(!s.account_test_only&&!s.profile_origin,'Test-only voice profiles cannot enter paid customer production.');
+          const quote=priceQuote.fromTicket(a,product);
+          if(quote)frozen.pricing_quote=quote;
+          const quotedPrice=quote?quote.amount_minor:PRICES[product];
           return await commerce.testerAdmission(a.sub,a.email,async promotion=>{
           demand(promotion||regularAllowed(a.sub),'Song production is not enabled for this account.',403);
           r={schema_version:'PX-CREATE-SONG-1.0',selection_id:a.selection_id,owner_member_id:a.sub,email:a.email,
             mode:'CUSTOMER',authorize_preview:true,authorize_comped:false,authorize_test_email:false,
-            ...(promotion?{promotion,catalog_price_minor:PRICES[product]}:{}),price_minor:promotion?0:PRICES[product],currency:'CAD',state:'REQUESTED',frozen,
+            ...(promotion?{promotion,catalog_price_minor:quotedPrice}:{}),price_minor:promotion?0:quotedPrice,currency:'CAD',state:'REQUESTED',frozen,
             requested_at:new Date().toISOString(),updated_at:new Date().toISOString(),claim_id:null,order_id:'',run_id:''};
           await write(file(r.selection_id),r);
           return {ok:true,creation:{selection_id:r.selection_id,state:r.state,order_id:'',run_id:''}};
@@ -94,4 +98,3 @@ function attach(app,c){
   };
 }
 module.exports={attach};
-

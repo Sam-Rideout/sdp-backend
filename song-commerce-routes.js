@@ -44,7 +44,7 @@ function attach(app,c) {
       case 'APPROVE':result=await store.approve(a.sub,a.review_id,a.preview_sha256,a.method);break;
       case 'RESERVE_PAYMENT':result=await store.reservePayment(a.sub,a.review_id);break;
       case 'BIND_PAYMENT':result=await store.bindPayment(a.sub,a.intent_id,a.payment);break;
-      case 'RESERVE_PLAN':result=await store.reservePlan(a.sub,a.plan_key);break;
+      case 'RESERVE_PLAN':result=await store.reservePlan(a.sub,a.plan_key,a.plan_price_minor);break;
       case 'BIND_PLAN':result=await store.bindPlan(a.sub,a.intent_id,a.order);break;
       default:demand(false,'Unknown review action.',400);
     }
@@ -94,6 +94,7 @@ function attach(app,c) {
     await fs.access(path.join(audio,req.body.preview_sha256+'.mp3'));
     const commit=JSON.parse(await fs.readFile(path.join(c.dataDir,'song-commits',req.body.selection_id+'.json'),'utf8'));
     demand(commit.owner_member_id===req.body.owner&&commit.order_id===req.body.order_id&&commit.run_id===req.body.run_id,'Review differs from its committed request.');
+    demand(require('./song-price-quote').sameQuote(commit.frozen?.pricing_quote,req.body.pricing_quote),'Song quote differs from its committed request.');
     demand(JSON.stringify(commit.promotion||null)===JSON.stringify(req.body.promotion||null),'Promotional request evidence differs.');
     res.json({ok:true,result:await store.publish(req.body)});
   }));
@@ -133,4 +134,3 @@ function attach(app,c) {
   return store;
 }
 module.exports={attach};
-

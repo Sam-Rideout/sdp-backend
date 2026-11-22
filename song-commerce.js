@@ -4,6 +4,8 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const testers = require('./song-testers');
+const priceQuote=require('./song-price-quote');
+// Compatibility prices for historical unquoted records; new purchases use frozen quotes.
 const PRICES = Object.freeze({VOICE_CLONE:2399, ORIGINAL_MESSAGE:1399, ORIGINAL_ONLY:899});
 const PLANS = Object.freeze({THREE:{credits:3,amount_minor:4399}, EIGHT:{credits:8,amount_minor:6499}});
 const digest = x => crypto.createHash('sha256').update(JSON.stringify(x)).digest('hex');
@@ -27,7 +29,7 @@ function available(s,owner) {demand(!s.holds[owner],'Payment requires operator r
 function publicReview(s,r) {
   return {review_id:r.review_id,selection_id:r.selection_id,order_id:r.order_id,run_id:r.run_id,
     product:r.product,title:r.title,state:r.state,preview_sha256:r.preview_sha256,
-    duration:r.duration,watermarks:r.watermarks,price_minor:r.promotion?0:PRICES[r.product],currency:'CAD',
+    duration:r.duration,watermarks:r.watermarks,price_minor:r.promotion?0:priceQuote.reviewAmount(r),currency:'CAD',
     ...(r.promotion?{promotion:r.promotion,promotion_available:testers.active(s,r.owner)&&testers.enrollment(s,r.owner)?.enrollment_id===r.promotion.enrollment_id}:{}),
     tax_included:true,credits:balance(s,r.owner),approved_at:r.approved_at||'',
     authorized:!!r.authorization,payment_review_required:!!s.holds[r.owner],delivered_at:r.delivered_at||''};
@@ -119,6 +121,7 @@ function createStore(directory, config={}) {
       const keys=['review_id','selection_id','owner','order_id','run_id','product','title','master_sha256','preview_sha256','duration','watermarks'];
       const record=Object.fromEntries(keys.map(k=>[k,x[k]]));
       if(x.promotion)record.promotion=testers.authority(s,x.owner,x.promotion);
+      if(x.pricing_quote!==undefined){priceQuote.validate(x.pricing_quote,x.owner,x.selection_id,x.product);record.pricing_quote=priceQuote.canonical(x.pricing_quote);}
       record.identity=digest(record);
       const old=s.reviews[x.review_id];
       if(old) {demand(old.identity===record.identity,'Review evidence changed. Publish a new review revision.');return publicReview(s,old);}
@@ -158,7 +161,7 @@ function createStore(directory, config={}) {
         demand(existing.payment_id,'Checkout is still preparing. Please retry in a few minutes.');
         return {...existing,create:false};
       }
-      const i={intent_id:crypto.randomUUID(),review_id:key,owner,amount_minor:PRICES[r.product],currency:'CAD',
+      const i={intent_id:crypto.randomUUID(),review_id:key,owner,amount_minor:priceQuote.reviewAmount(r),currency:'CAD',
         title:r.title,preview_sha256:r.preview_sha256,state:'CREATING',created_at:stamp()};
       s.intents[i.intent_id]=i;return {...i,create:true};
     });},
@@ -192,7 +195,7 @@ function createStore(directory, config={}) {
         s.intents[saved.intent_id].state=event.status.toUpperCase();
       s.payments[p.id]=saved;s.events[key]=evidence;applyPayment(s,p.id);return {ok:true};
     });},
-    async reservePlan(owner,planKey) {return transaction(s=>{
+    async reservePlan(owner,planKey,quotedAmount) {return transaction(s=>{
       available(s,owner);const plan=PLANS[planKey],planId=config.plan_ids?.[planKey];
       demand(plan&&uuid(planId),'Monthly plan is not configured.');
       demand(!Object.values(s.subscriptions||{}).some(o=>o.owner===owner&&o.plan_id===planId&&['ACTIVE','PENDING','PAUSED'].includes(o.status)),
@@ -201,7 +204,10 @@ function createStore(directory, config={}) {
       let old=Object.values(s.plan_intents).find(i=>i.owner===owner&&i.plan_id===planId&&!['PAID','ABANDONED'].includes(i.state));
       if(old&&!old.payment_id&&Date.now()-Date.parse(old.created_at)>300000){old.state='ABANDONED';old=null;}
       if(old){demand(old.order_id&&old.payment_id,'Subscription checkout is still preparing. Please retry in a few minutes.');return {...old,create:false};}
-      const intent={intent_id:crypto.randomUUID(),owner,plan_key:planKey,plan_id:planId,amount_minor:plan.amount_minor,currency:'CAD',state:'CREATING',created_at:stamp()};
+      demand(quotedAmount!==undefined||process.env.PX_LIVE_PRICING_ENABLED!=='true','Live monthly pricing is unavailable.',503);
+      const planAmount=quotedAmount===undefined?plan.amount_minor:quotedAmount;
+      demand(priceQuote.amount(planAmount),'Invalid monthly price.',400);
+      const intent={intent_id:crypto.randomUUID(),owner,plan_key:planKey,plan_id:planId,amount_minor:planAmount,currency:'CAD',state:'CREATING',created_at:stamp()};
       s.plan_intents[intent.intent_id]=intent;return {...intent,create:true};
     });},
     async bindPlan(owner,intentId,order) {return transaction(s=>{
@@ -210,6 +216,8 @@ function createStore(directory, config={}) {
       demand(order.buyer?.memberId===owner&&order.planId===i.plan_id&&uuid(order._id)&&uuid(order.wixPayOrderId)
         &&order.priceDetails?.currency==='CAD'&&minor(order.priceDetails.total)===i.amount_minor,'Subscription checkout total or owner differs.');
       demand(!i.order_id||i.order_id===order._id,'Another subscription already owns this checkout.');
+      const prior=s.grants[order._id+':1'];
+      demand(!prior||(prior.owner===owner&&prior.plan_id===i.plan_id&&prior.amount_minor===i.amount_minor),'Earlier paid cycle differs from the subscription quote.');
       i.order_id=order._id;i.payment_id=order.wixPayOrderId;i.state='PENDING';
       if(s.grants[order._id+':1'])i.state='PAID';return {ok:true};
     });},
@@ -219,12 +227,15 @@ function createStore(directory, config={}) {
       const cycle=order.currentCycle;
       demand(order.type==='ONLINE'&&order.lastPaymentStatus==='PAID'&&Number.isInteger(cycle?.index)&&cycle.index>0,'No paid subscription cycle.');
       demand(order.pricing?.subscription?.cycleDuration?.unit==='MONTH'&&order.pricing.subscription.cycleDuration.count===1,'Plan is not monthly.');
+      const bound=Object.values(s.plan_intents||{}).filter(i=>i.order_id===order._id&&i.owner===order.buyer.memberId&&i.plan_id===order.planId);
+      demand(bound.length<=1,'Conflicting subscription price quotes.');
+      const expectedAmount=bound.length?bound[0].amount_minor:plan.amount_minor;
       const prices=order.pricing.prices.filter(p=>p.duration?.cycleFrom<=cycle.index
         &&(p.duration.numberOfCycles===undefined||p.duration.cycleFrom+p.duration.numberOfCycles>cycle.index));
-      demand(prices.length===1&&prices[0].price.currency==='CAD'&&minor(prices[0].price.total)===plan.amount_minor,'Monthly amount differs.');
+      demand(prices.length===1&&prices[0].price.currency==='CAD'&&minor(prices[0].price.total)===expectedAmount,'Monthly amount differs.');
       const key=order._id+':'+cycle.index;
       const record={owner:order.buyer.memberId,order_id:order._id,subscription_id:order.subscriptionId,
-        plan_id:order.planId,cycle:cycle.index,credits:plan.credits,amount_minor:plan.amount_minor,currency:'CAD'};
+        plan_id:order.planId,cycle:cycle.index,credits:plan.credits,amount_minor:expectedAmount,currency:'CAD'};
       const old=s.grants[key];if(old)demand(digest(old)===digest(record),'Paid cycle ownership or terms changed.');else s.grants[key]=record;
       for(const intent of Object.values(s.plan_intents||{}))if(intent.order_id===order._id)intent.state='PAID';
       if(cycle.index>1&&!s.grants[order._id+':'+(cycle.index-1)]){
@@ -255,6 +266,7 @@ function createStore(directory, config={}) {
       if(r.authorization.kind==='PROMOTION'&&r.state!=='DELIVERED')testers.authority(s,owner,r.promotion);
       return {review_id:key,owner,selection_id:r.selection_id,order_id:r.order_id,run_id:r.run_id,
         master_sha256:r.master_sha256,preview_sha256:r.preview_sha256,authorization:r.authorization,state:r.state,
+        ...(r.pricing_quote?{pricing_quote:r.pricing_quote}:{}),
         ...(r.promotion?{promotion:r.promotion}:{}),
         ...(r.authorization.kind==='PAYMENT'?{payment:{payment_id:r.authorization.reference,
           transaction_id:s.payments[r.authorization.reference].success.transaction_id,
@@ -268,5 +280,3 @@ function createStore(directory, config={}) {
   };
 }
 module.exports={createStore,PRICES,PLANS,minor,digest,demand};
-
-
