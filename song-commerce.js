@@ -47,8 +47,21 @@ function authorize(r,kind,reference,creditBalanceAfter) {
 }
 function applyPayment(s,paymentId) {
   const p=s.payments[paymentId];if(!p?.intent_id||!p.success)return;
-  const intent=s.intents[p.intent_id],r=s.reviews[intent.review_id];
-  demand(intent && r,'Payment intent is missing.');
+  const intent=s.intents[p.intent_id];
+  demand(intent,'Payment intent is missing.');
+  if(intent.kind==='CREDIT_BUNDLE') {
+    demand(intent.bundle_key==='TWENTY'&&intent.credits===20&&intent.currency==='CAD'
+      &&p.success.currency==='CAD'&&p.success.amount_minor===intent.amount_minor,'Credit bundle payment differs.');
+    if(p.refunded){s.holds[intent.owner]='Credit bundle payment adjustment requires review';return;}
+    const key='BUNDLE:'+paymentId;
+    const grant={owner:intent.owner,payment_id:paymentId,intent_id:intent.intent_id,bundle_key:intent.bundle_key,
+      credits:intent.credits,amount_minor:intent.amount_minor,currency:'CAD',transaction_id:p.success.transaction_id};
+    const old=s.grants[key];demand(!old||digest(old)===digest(grant),'Credit bundle grant differs.');
+    if(!old)s.grants[key]=grant;
+    intent.state='SUCCESSFUL';return;
+  }
+  const r=s.reviews[intent.review_id];
+  demand(r,'Payment intent is missing.');
   demand(p.success.currency==='CAD'&&p.success.amount_minor===intent.amount_minor,'Payment amount/currency differs.');
   if(p.refunded) {s.holds[r.owner]='Refunded payment '+paymentId;return;}
   if(r.authorization) {
@@ -108,6 +121,54 @@ function createStore(directory, config={}) {
     listTesters:()=>transaction(s=>({invitations:Object.values(testers.db(s).invitations).map(({token_sha256,presentation,...x})=>x),enrollments:Object.values(testers.db(s).enrollments)})),
     testerAdmission:(owner,email,fn)=>transaction(s=>{const e=testers.enrollment(s,owner);return fn(e&&testers.active(s,owner)?testers.authority(s,owner,testers.evidence(e),email):null);}),
     checkPromotion:(owner,promotion,email)=>transaction(s=>testers.authority(s,owner,promotion,email)),
+    async salesRecords() {return transaction(async s=>{
+      const sales=[],issues=[];
+      const labels={VOICE_CLONE:'A Song in Your Voice',ORIGINAL_MESSAGE:'Original Song + Your Message',ORIGINAL_ONLY:'Original Song'};
+      async function append(intent,paymentId,payment,review){
+        try{
+          const bundle=intent?.kind==='CREDIT_BUNDLE';
+          let email=bundle?intent.buyer_email:null,display=null;
+          if(!bundle){
+            const commit=JSON.parse(await fs.readFile(path.join(path.dirname(directory),'song-commits',review.selection_id+'.json'),'utf8'));
+            demand(commit.owner_member_id===review.owner&&commit.selection_id===review.selection_id,'Accounting owner differs.');
+            email=commit.email;display=commit.frozen?.pricing_display;
+          }
+          demand(typeof email==='string'&&email.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),'Accounting buyer email is missing.');
+          const zero=!intent;
+          const total=zero?0:intent.amount_minor;
+          const regular=bundle?(intent.regular_amount_minor||total):(display?.regular_amount_minor??(zero?priceQuote.reviewAmount(review):total));
+          demand(Number.isSafeInteger(total)&&total>=0&&Number.isSafeInteger(regular)&&regular>=total,'Accounting amount differs.');
+          if(display&&!zero)demand(display.amount_minor===total,'Saved sale price differs.');
+          const refund=payment?.refunded?.status;
+          const record={source_key:paymentId?'PX-PAYMENT:'+paymentId:'PX-SONG:'+review.review_id,
+            kind:bundle?'CREDIT_BUNDLE':zero?review.authorization.kind==='CREDIT'?'CREDIT_REDEMPTION':'PROMOTION':'SINGLE_SONG',
+            owner:bundle?intent.owner:review.owner,email,currency:'CAD',amount_minor:total,regular_amount_minor:regular,
+            title:bundle?'20 Song Credits — One-Time Purchase':labels[review.product]+' — '+review.title,
+            purchased_at:zero?review.approved_at:intent.created_at,
+            fulfilled:bundle?!!s.grants['BUNDLE:'+paymentId]:review.state==='DELIVERED',payment_status:refund==='Refunded'?'FULLY_REFUNDED':refund==='PartiallyRefunded'?'PARTIALLY_REFUNDED':refund?'PENDING':'PAID',
+            ...(refund?{adjustment:refund}:{}),...(paymentId?{payment_id:paymentId,transaction_id:payment.success.transaction_id}:{}),
+            ...(!bundle?{order_id:review.order_id,selection_id:review.selection_id,review_id:review.review_id}:{credits:20})};
+          demand(typeof record.title==='string'&&record.title.length<=200&&Number.isFinite(Date.parse(record.purchased_at)),'Accounting record is incomplete.');
+          sales.push({...record,source_hash:digest(record)});
+        }catch(e){issues.push({reference:paymentId||review?.order_id||'unknown',reason:e.message});}
+      }
+      for(const [paymentId,payment] of Object.entries(s.payments)){
+        const intent=s.intents[payment.intent_id];
+        if(!intent||!payment.success)continue;
+        if(intent.kind==='CREDIT_BUNDLE'){
+          const grant=s.grants['BUNDLE:'+paymentId];
+          if((grant&&grant.owner===intent.owner&&grant.amount_minor===intent.amount_minor)
+            ||(payment.refunded&&payment.success.amount_minor===intent.amount_minor&&payment.success.currency===intent.currency))await append(intent,paymentId,payment,null);
+        }else{
+          const review=s.reviews[intent.review_id];
+          if(review&&review.owner===intent.owner&&((review.authorization?.kind==='PAYMENT'&&review.authorization.reference===paymentId)
+            ||(payment.refunded&&!review.authorization&&payment.success.amount_minor===intent.amount_minor&&payment.success.currency===intent.currency)))
+            await append(intent,paymentId,payment,review);
+        }
+      }
+      for(const review of Object.values(s.reviews))if(review.authorization?.kind==='CREDIT')await append(null,null,null,review);
+      return {schema_version:'PX-WIX-SALES-1.0',sales,issues};
+    });},
     async reserveFailedCancellation(proof,evidence) {return transaction(s=>{
       demand(!Object.values(s.reviews).some(r=>r.selection_id===proof.selection_id||r.order_id===proof.order_id||r.run_id===proof.run_id),
         'A review, payment or credit may exist. Automatic cancellation requires operator review.');
@@ -158,6 +219,24 @@ function createStore(directory, config={}) {
         r.approved_at=stamp();authorize(r,'CREDIT',key,credits-1);
       } else {demand(['REVIEW','PAYMENT_PENDING'].includes(r.state),'This review cannot be approved.');r.approved_at=r.approved_at||stamp();r.state='PAYMENT_PENDING';}
       return publicReview(s,r);
+    });},
+    async reserveBundle(owner,bundleKey,quotedAmount,details={}) {return transaction(s=>{
+      available(s,owner);
+      demand(bundleKey==='TWENTY'&&priceQuote.amount(quotedAmount),'Invalid credit bundle or live price.',400);
+      let old=Object.values(s.intents).find(i=>i.owner===owner&&i.kind==='CREDIT_BUNDLE'&&i.bundle_key===bundleKey
+        &&!['SUCCESSFUL','FAILED','CANCELLED','ABANDONED'].includes(i.state));
+      if(old&&!old.payment_id&&Date.now()-Date.parse(old.created_at)>300000){old.state='ABANDONED';old=null;}
+      if(old){
+        demand(old.amount_minor===quotedAmount,'Your saved bundle checkout has a different price. Contact Project X before retrying.');
+        demand(old.payment_id,'Bundle checkout is still preparing. Retry shortly.');return {...old,create:false};
+      }
+      const regular=details.regular_amount_minor===undefined?quotedAmount:details.regular_amount_minor;
+      demand(priceQuote.amount(regular)&&regular>=quotedAmount,'Invalid bundle regular price.');
+      if(details.buyer_email!==undefined)demand(typeof details.buyer_email==='string'&&details.buyer_email.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(details.buyer_email),'Verified buyer email is missing.');
+      const intent={intent_id:crypto.randomUUID(),kind:'CREDIT_BUNDLE',owner,bundle_key:bundleKey,credits:20,
+        regular_amount_minor:regular,...(details.buyer_email?{buyer_email:details.buyer_email}:{}),
+        amount_minor:quotedAmount,currency:'CAD',title:'20 song credits — one-time purchase',state:'CREATING',created_at:stamp()};
+      s.intents[intent.intent_id]=intent;return {...intent,create:true};
     });},
     async reservePayment(owner,key) {return transaction(s=>{
       available(s,owner);const r=owned(s,owner,key);demand(r.state==='PAYMENT_PENDING'&&!r.authorization,'Approve the song before checkout.');

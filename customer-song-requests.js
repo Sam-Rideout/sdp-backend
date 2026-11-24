@@ -133,6 +133,12 @@ function attach(app,c){
           demand(!s.account_test_only&&!s.profile_origin,'Test-only voice profiles cannot enter paid customer production.');
           const quote=priceQuote.fromTicket(a,product);
           if(quote)frozen.pricing_quote=quote;
+          if(quote){
+            const offered=a.pricing_catalog.products[product];
+            const regular=offered.regularAmountMinor===undefined?quote.amount_minor:offered.regularAmountMinor;
+            demand(priceQuote.amount(regular)&&regular>=quote.amount_minor,'Regular product price differs.');
+            frozen.pricing_display={regular_amount_minor:regular,amount_minor:quote.amount_minor,on_sale:regular>quote.amount_minor};
+          }
           const quotedPrice=quote?quote.amount_minor:PRICES[product];
           return await commerce.testerAdmission(a.sub,a.email,async promotion=>{
           demand(promotion||regularAllowed(a.sub),'Song production is not enabled for this account.',403);
