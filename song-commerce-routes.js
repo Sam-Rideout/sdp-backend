@@ -13,6 +13,7 @@ function attach(app,c) {
   }
   const folder=path.join(c.dataDir,'song-commerce'),audio=path.join(folder,'preview-audio');
   const store=createStore(folder,c.config);
+  app.get('/api/transfer/song-credit-bundle-status',c.transferAuth,(req,res)=>res.json({ok:true,schema_version:'PX-CREDIT-BUNDLES-1.0',bundle_key:'TWENTY',credits:20}));
   const memberAllowed=owner=>typeof owner==='string'&&(c.config.public_processing===true
     ||c.config.pilot_members?.includes(owner)===true);
   const requireMember=async owner=>demand(memberAllowed(owner)||await store.testerKnown(owner),
@@ -44,6 +45,7 @@ function attach(app,c) {
       case 'APPROVE':result=await store.approve(a.sub,a.review_id,a.preview_sha256,a.method);break;
       case 'RESERVE_PAYMENT':result=await store.reservePayment(a.sub,a.review_id);break;
       case 'BIND_PAYMENT':result=await store.bindPayment(a.sub,a.intent_id,a.payment);break;
+      case 'RESERVE_BUNDLE':result=await store.reserveBundle(a.sub,a.bundle_key,a.bundle_price_minor,{regular_amount_minor:a.bundle_regular_minor,buyer_email:a.buyer_email});break;
       case 'RESERVE_PLAN':result=await store.reservePlan(a.sub,a.plan_key,a.plan_price_minor);break;
       case 'BIND_PLAN':result=await store.bindPlan(a.sub,a.intent_id,a.order);break;
       default:demand(false,'Unknown review action.',400);
@@ -62,6 +64,7 @@ function attach(app,c) {
     demand(await c.consumeTicket(a.jti),'Event authorization was already used.',401);
     let result;
     if(a.operation==='PAYMENT') result=await store.paymentEvent(a.event);
+    else if(a.operation==='SALES_RECORDS') result=await store.salesRecords();
     else if(a.operation==='PAID_CYCLE') {await requireMember(a.order?.buyer?.memberId);result=await store.grantCycle(a.order);}
     else if(a.operation==='SUBSCRIPTION_STATE') {await requireMember(a.order?.buyer?.memberId);result=await store.subscriptionState(a.order);}
     else demand(false,'Unknown provider event.',400);

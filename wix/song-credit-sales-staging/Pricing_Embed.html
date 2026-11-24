@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Project X — Products and Pricing</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#000;color:#fff;font:16px Arial,sans-serif;line-height:1.6}
+main{max-width:1080px;margin:auto;padding:28px 24px 48px}h1{font-size:36px;line-height:1.2;margin:0 0 16px}h2{font-size:25px;margin:35px 0 18px}h3{font-size:21px;line-height:1.35;margin:0 0 12px}.intro{max-width:720px;color:#ddd}.eyebrow{color:#00efff;text-transform:uppercase;letter-spacing:2px;font-size:12px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}.monthly{grid-template-columns:repeat(2,minmax(0,1fr))}.card{background:#141414;border:1px solid #333;border-top:2px solid #00d9ee;border-radius:5px;padding:24px}.price{font-size:29px;font-weight:bold;line-height:1.3;margin:14px 0}.unit{display:block;color:#ccc;font-size:13px;font-weight:normal;margin-top:6px}.description{color:#ddd}.terms{color:#ccc;font-size:14px;max-width:850px}.actions{display:flex;flex-wrap:wrap;gap:28px;margin-top:32px}.px-button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 198px;width:198px;height:30px;padding:0 8px;border:1px solid transparent;border-radius:5px;font:400 12px plantin-mt-std,"Plantin MT Std",Georgia,serif;line-height:1;color:#000;text-decoration:none;background:linear-gradient(90deg,#003b93 0%,#0084f5 100%);box-shadow:inset 0 -2px 18px 2px rgba(255,255,255,.65),-7.071068px -7.071068px 4px 1px rgba(0,0,0,.77),0 0 24px 0 rgba(0,240,255,.64);cursor:pointer}.px-button:hover{background:#000;color:#fff}.px-button:focus-visible{outline:2px solid #fff;outline-offset:4px}.px-button:disabled{background:#999;color:#000;box-shadow:none;cursor:wait}#status{min-height:26px;color:#eee;margin:18px 0}#prices[hidden]{display:none}
+@media(max-width:760px){.grid,.monthly{grid-template-columns:1fr}h1{font-size:30px}main{padding:24px 20px 40px}.actions{justify-content:center}.px-button{max-width:100%}}
+/* Hide the iframe's own scrollbar while preserving wheel, touch and keyboard scrolling. */
+html,body{scrollbar-width:none;-ms-overflow-style:none}
+html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
+</style></head><body><main>
+<p class="eyebrow">Their Occasion. Your Personal Touch.</p>
+<h1>Products and Pricing</h1>
+<p class="intro">Give a song to remember. Choose a song in your own voice, add a personal message to the original singer, or send the original song.</p>
+<p id="status" role="status" aria-live="polite">Loading current prices…</p>
+<div id="prices" hidden>
+<h2>Single songs</h2><p>Listen to your finished preview before approving and paying for your song.</p>
+<div class="grid">
+<article class="card"><h3 id="VOICE_CLONE_name">A Song in Your Voice</h3><p class="price" id="VOICE_CLONE_price"></p><p class="description">Your prepared voice profile becomes the lead singer. Add a personal message for the recipient.</p></article>
+<article class="card"><h3 id="ORIGINAL_MESSAGE_name">Original Song + Your Message</h3><p class="price" id="ORIGINAL_MESSAGE_price"></p><p class="description">The original singer performs the song, with your recorded personal message included. A trained voice profile is not required.</p></article>
+<article class="card"><h3 id="ORIGINAL_ONLY_name">Original Song</h3><p class="price" id="ORIGINAL_ONLY_price"></p><p class="description">Send the song performed by its original singer, without a personal message. A trained voice profile is not required.</p></article>
+</div>
+<h2>One-time song credit bundle</h2><div class="grid"><article class="card"><h3>20 song credits</h3><p class="price" id="TWENTY_price"></p><p>Pay once. No monthly renewal. Use one credit for any song option when you approve your finished song.</p></article></div>
+<h2>Monthly song plans</h2><p>For regular gift giving, receive song credits with each successful monthly payment.</p>
+<div class="grid monthly">
+<article class="card"><h3>3 songs each month</h3><p class="price" id="THREE_price"></p><p>3 song credits with each successful monthly payment.</p></article>
+<article class="card"><h3>8 songs each month</h3><p class="price" id="EIGHT_price"></p><p>8 song credits with each successful monthly payment.</p></article>
+</div>
+<p class="terms">All prices are in Canadian dollars and include applicable tax. Monthly plans renew until cancelled. One credit can be used for any song option. Unused credits roll over and remain usable after cancellation. A credit is used when you approve a song for delivery.</p>
+<p class="terms">Your finished MP3 is emailed to you, ready to forward as a gift. This page is for information; purchasing and song approval take place in your account.</p>
+</div>
+<div class="actions"><a class="px-button" href="https://www.sdpsongs.ca/" target="_top">Return to Home</a><button class="px-button" id="refresh" type="button">Refresh Prices</button></div>
+</main><script>
+'use strict';
+const channel='PX_PUBLIC_PRICING',status=document.getElementById('status'),refresh=document.getElementById('refresh');
+let received=false,attempts=0;
+function send(type){parent.postMessage({channel,type},'*');}
+function money(amount){if(!Number.isSafeInteger(amount)||amount<=0||amount>10000000)throw Error('Invalid price');return '$'+(amount/100).toFixed(2)+' CAD';}
+window.addEventListener('message',event=>{
+ if(event.source!==parent||event.data?.channel!==channel)return;
+ const m=event.data;
+ if(m.type==='INIT')send('READY');
+ if(m.type==='LOADING'){received=true;refresh.disabled=true;document.getElementById('prices').hidden=true;status.textContent='Loading current prices…';}
+ if(m.type==='ERROR'){received=true;refresh.disabled=false;document.getElementById('prices').hidden=true;status.textContent='Current prices could not be loaded. Please choose Refresh Prices.';}
+ if(m.type==='PRICING'){
+  received=true;refresh.disabled=false;
+  try{
+   const d=m.data;
+   if(d?.schema_version!=='PX-PUBLIC-PRICING-1.0'||d.currency!=='CAD'||d.tax_included!==true)throw Error('Invalid catalog');
+   const values=[];
+   for(const key of ['VOICE_CLONE','ORIGINAL_MESSAGE','ORIGINAL_ONLY']){
+    if(typeof d.products?.[key]?.name!=='string'||!d.products[key].name.trim())throw Error('Invalid product');
+    values.push([key,d.products[key].name,(d.products[key].onSale?'Sale: ':'')+money(d.products[key].amountMinor)+(d.products[key].onSale?' (regular '+money(d.products[key].regularAmountMinor)+')':'')]);
+   }
+   if(d.bundles?.TWENTY?.credits!==20||d.bundles.TWENTY.oneTime!==true)throw Error('Invalid credit bundle');
+   values.push(['TWENTY',null,(d.bundles.TWENTY.onSale?'Sale: ':'')+money(d.bundles.TWENTY.amountMinor)+' — paid once'+(d.bundles.TWENTY.onSale?' (regular '+money(d.bundles.TWENTY.regularAmountMinor)+')':'')]);
+   for(const [key,credits] of [['THREE',3],['EIGHT',8]]){
+    if(d.plans?.[key]?.credits!==credits)throw Error('Invalid plan');
+    values.push([key,null,money(d.plans[key].amountMinor)+' per month']);
+   }
+   for(const [key,name,price] of values){if(name)document.getElementById(key+'_name').textContent=name;document.getElementById(key+'_price').textContent=price;}
+   document.getElementById('prices').hidden=false;status.textContent='';
+  }catch(error){document.getElementById('prices').hidden=true;status.textContent='Current prices could not be confirmed. Please choose Refresh Prices.';}
+ }
+});
+refresh.onclick=()=>send('REFRESH');
+send('READY');
+const readyTimer=setInterval(()=>{if(received||++attempts>=10){clearInterval(readyTimer);if(!received)status.textContent='Prices are not connected yet. Please choose Refresh Prices.';return;}send('READY');},1000);
+</script></body></html>
