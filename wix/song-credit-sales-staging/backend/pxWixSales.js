@@ -1,3 +1,4 @@
+// PX-WIX-SALES-BRIDGE-1.2: SDK filter conditions and wrapped import responses.
 // Private accounting mirror. No checkout, charging, refunds, or customer email.
 import wixData from 'wix-data';
 import {orders} from '@wix/ecom';
@@ -47,11 +48,11 @@ async function allOrders(){const all=[];let cursor;do{
 async function claim(row,status){
  const claimId=randomBytes(24).toString('hex');
  const result=await conditionalUpdate(JOURNAL,{...row,status,claimId,claimedAt:new Date()},
-  {suppressHooks:true,condition:{filter:{status:row.status,sourceHash:row.sourceHash,claimId:row.claimId||''}}});
+  {suppressHooks:true,condition:items.filter().eq('status',row.status).eq('sourceHash',row.sourceHash).eq('claimId',row.claimId||'')});
  demand(result.claimId===claimId,'Accounting reconciliation is busy.');return result;
 }
 async function saveClaim(row,changes){return conditionalUpdate(JOURNAL,{...row,...changes},
- {suppressHooks:true,condition:{filter:{claimId:row.claimId,status:row.status}}});}
+ {suppressHooks:true,condition:items.filter().eq('claimId',row.claimId).eq('status',row.status)});}
 let working=false;
 export async function syncWixSalesRecords(){
  if(working)return {state:'BUSY'};working=true;
@@ -62,7 +63,7 @@ export async function syncWixSalesRecords(){
   demand(source.schema_version==='PX-WIX-SALES-1.0'&&Array.isArray(source.sales)&&source.sales.length<=5000,'Sales export is incomplete or oversized.');
   const existing=await allOrders(),seen=new Map();
   for(const order of existing){const key=order.channelInfo?.externalOrderId;if(key?.startsWith('PX-')){demand(!seen.has(key),'Duplicate Project X order reference requires review.');seen.set(key,order);}}
-  let imported=0,updated=0,issues=(source.issues||[]).length,checked=0;
+  let imported=0,updated=0,issues=(source.issues||[]).length,checked=0;const issueDetails=[];
   for(const r of source.sales){
    if(checked>=25)break;
    let row;
@@ -91,7 +92,8 @@ export async function syncWixSalesRecords(){
      const latest=await commerceCall('wix-backend','SALES_RECORDS',{},true);
      const current=latest.sales.find(x=>x.source_key===r.source_key);
      demand(current?.source_hash===r.source_hash,'Sales authority changed during reconciliation.');
-     const result=await importOrder({...makeWixOrder(r),_id:found._id||found.id});
+     const response=await importOrder({...makeWixOrder(r),_id:found._id||found.id});
+     const result=response?.order;
      validateImported(result,r);
      await saveClaim(row,{wixOrderId:result._id||result.id,status:'DONE',sourceHash:r.source_hash,snapshot:r,claimId:'',syncedAt:new Date()});updated++;continue;
     }
@@ -100,22 +102,26 @@ export async function syncWixSalesRecords(){
     row=await claim(row,'IMPORTING');checked++;
     const latest=await commerceCall('wix-backend','SALES_RECORDS',{},true);
     demand(latest.sales.find(x=>x.source_key===r.source_key)?.source_hash===r.source_hash,'Sales authority changed before import.');
-    const result=await importOrder(makeWixOrder(r));
+    const response=await importOrder(makeWixOrder(r));
+    const result=response?.order;
+    // Preserve a returned ID before validation, so index lag cannot lose the receipt.
+    if(result?._id)row=await saveClaim(row,{wixOrderId:result._id});
     validateImported(result,r);
     await saveClaim(row,{wixOrderId:result._id||result.id,status:'DONE',sourceHash:r.source_hash,snapshot:r,claimId:'',syncedAt:new Date()});
     seen.set(r.source_key,result);imported++;
    }catch(error){
     issues++;
+    if(issueDetails.length<25)issueDetails.push({reference:r.source_key,stage:row?.status||'READ_JOURNAL',message:String(error.message||'Accounting sync needs review.').slice(0,300)});
     if(row&&['IMPORTING','UPDATING'].includes(row.status)){
      try{await saveClaim(row,{status:'UNCERTAIN',lastError:String(error.message||'Accounting sync needs review.').slice(0,200)});}catch{}
     }
    }
   }
-  return {state:issues?'REVIEW_REQUIRED':'RUNNING',imported,updated,issues,checked:Math.min(checked,25),total:source.sales.length};
+  return {state:issues?'REVIEW_REQUIRED':'RUNNING',imported,updated,issues,checked:Math.min(checked,25),total:source.sales.length,issueDetails};
  }finally{working=false;}
 }
 export async function checkWixSalesReadiness(){
- demand(typeof orders.importOrder==='function'&&typeof items.update==='function','Required Wix SDK packages are unavailable.');
+ demand(typeof orders.importOrder==='function'&&typeof items.update==='function'&&typeof items.filter==='function','Required Wix SDK packages are unavailable.');
  const result=await searchOrders({cursorPaging:{limit:1}});
  demand(Array.isArray(result.orders),'Wix Orders read permissions are unavailable.');
  return {ready:true,orderCountInProbe:result.orders.length,settings:await one(SETTINGS,'SETTINGS'),noChanges:true};
