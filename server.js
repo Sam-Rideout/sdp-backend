@@ -36,6 +36,7 @@ const profileErasure = require('./profile-erasure').createProfileErasure({
   store: require('./profile-deletion').createProfileDeletionStore(DATA_DIR)
 });
 const SECTION_CONFIG = path.resolve(process.env.VOICE_SECTION_CONFIG || path.join(ROOT, 'config', 'capture-sections.json'));
+function loadCaptureConfig() { return profileContract.captureConfig(JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'))); }
 const PILOT_CONSENT_VERSION = 'limited-helper-pilot-2026-10-03-v1';
 const PILOT_CONSENT_NOTICE = 'LIMITED HELPER PILOT. This is a test of the recording workflow, not a customer order. Your recordings will be used only to test and improve the recording process and capture quality. They will not be used in customer orders or production machine-learning training. The recording clips are stored temporarily on Render while they are transferred to Sam’s PC. After the local transfer is verified, the live Render audio files are deleted. Render also creates encrypted daily disk snapshots; Render documents that snapshots are kept for at least 7 days and does not publish a maximum retention period. Deleted live files may therefore remain in snapshots for an unknown period. The local pilot copy will be kept only while the limited pilot is active, unless you ask for deletion sooner. Contact Sam at sam.rideout.me@gmail.com to request deletion or stop participating. Do not continue if you do not agree.';
 
@@ -80,7 +81,7 @@ function optionalAuthenticatedMember(req, res, next) {
   } catch (error) { next(error); }
 }
 
-function customerTestAccess(req, config = JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'))) {
+function customerTestAccess(req, config = loadCaptureConfig()) {
   const allowedEmail = normalizeEmail(config.customer_test_account_email);
   return ['ACCOUNT_TEST', 'LINKED_CUSTOMERS'].includes(config.customer_capture_scope) &&
     Boolean(req.memberId) && allowedEmail.length <= 254 &&
@@ -97,7 +98,7 @@ function requireCaptureAccess(req, res, next) {
     req.captureProgram = 'LIMITED_HELPER_PILOT';
     return next();
   }
-  const config = JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'));
+  const config = loadCaptureConfig();
   if (!customerTestAccess(req, config) && !require('./customer-capture-access').linkedCustomerAccess(req, config)) return res.status(403).json({ error: 'Customer capture is not enabled for this account.' });
   req.captureProgram = 'CUSTOMER';
   next();
@@ -373,7 +374,7 @@ app.get('/pilot-consent', (req, res) => res.sendFile(path.join(ROOT, 'public', '
 
 app.get('/api/config', optionalAuthenticatedMember, (req, res, next) => {
   try {
-    const config = JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'));
+    const config = loadCaptureConfig();
     if (captureMode() === 'CUSTOMER') profileContract.config(config);
     const promptsReady = config.prompts_approved === true && config.sections.length === SECTION_COUNT &&
       config.sections.every(section => section.title && section.instructions);
@@ -486,7 +487,7 @@ app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCapture
   return require('./tester-consent-routes').requireAcceptance(songCommerceStore)(req,res,next);
 }, async (req, res, next) => {
   try {
-    const config = JSON.parse(await fsp.readFile(SECTION_CONFIG, 'utf8'));
+    const config = loadCaptureConfig();
     const promptsReady = config.prompts_approved === true && config.sections.length === SECTION_COUNT && config.sections.every(section => section.title && section.instructions);
     if (req.captureProgram === 'LIMITED_HELPER_PILOT') {
       if (!promptsReady) return res.status(503).json({ error: 'The eight recording prompts are not ready.' });
@@ -670,7 +671,7 @@ app.post('/api/sessions/:sessionId/clips', authenticatedMember, requireSameOrigi
         try { clipRecordingSetup = recordingSetup.setup(JSON.parse(req.body?.recording_setup || '')); }
         catch (error) { return res.status(400).json({ error: 'Recording setup for this take is missing or invalid. Update the setup and retry saving this take.' }); }
       }
-      const promptConfig = JSON.parse(await fsp.readFile(SECTION_CONFIG, 'utf8'));
+      const promptConfig = loadCaptureConfig();
       const selectedSection = isMessage ? SPECIAL_MESSAGE : promptConfig.sections.find(item => item.id === section);
       if (!selectedSection || !selectedSection.title || !selectedSection.instructions) return res.status(409).json({ error: 'This section prompt is not configured yet.' });
       if (!req.file || !req.file.buffer?.length) return res.status(400).json({ error: 'Choose a completed recording to upload.' });
@@ -768,14 +769,14 @@ app.delete('/api/sessions/:sessionId/clips/:clipId', authenticatedMember, requir
   res.json({ ok: true, deleted_clip_id: clip.clip_id, session: publicManifest(manifest) });
 });
 
-require('./supplied-recording').attachSuppliedRecording(app, {express, authenticatedMember, requireSameOrigin, requireCaptureAccess, transferAuth, ownedManifest, readManifest, writeManifest, safeSessionId, sessionPath, publicManifest, lockSessionRequest, directoryBytes, dataDir:DATA_DIR, maxStoreBytes:MAX_STORE_BYTES, config:()=>JSON.parse(fs.readFileSync(SECTION_CONFIG, 'utf8'))});
+require('./supplied-recording').attachSuppliedRecording(app, {express, authenticatedMember, requireSameOrigin, requireCaptureAccess, transferAuth, ownedManifest, readManifest, writeManifest, safeSessionId, sessionPath, publicManifest, lockSessionRequest, directoryBytes, dataDir:DATA_DIR, maxStoreBytes:MAX_STORE_BYTES, config:()=>loadCaptureConfig()});
 
 app.post('/api/sessions/:sessionId/complete', authenticatedMember, requireSameOrigin, requireCaptureAccess, ownedManifest, async (req, res, next) => {
   try {
     const manifest = req.manifest;
     if(manifest.additional_training)await additionalTraining.validateManifest(manifest);
     if (manifest.status !== 'RECORDING') return res.status(409).json({ error: 'This session is already complete.' });
-    const config = JSON.parse(await fsp.readFile(SECTION_CONFIG, 'utf8'));
+    const config = loadCaptureConfig();
     const missing = config.sections.filter(section => section.title && section.instructions)
       .filter(section => !(manifest.sections[String(section.id)]?.takes?.length));
     if (missing.length) return res.status(400).json({ error: `Record at least one saved take for each active section. Still needed: ${missing.map(item => item.id).join(', ')}.` });
@@ -959,6 +960,7 @@ const songCommerceStore = require('./song-commerce-routes').attach(app, {
   consumeTicket, sign, directoryBytes, maxStoreBytes:MAX_STORE_BYTES, origin:'https://sdp-backend-6xt7.onrender.com'
 });
 require('./tester-consent-routes').attach(app, {root:ROOT,store:songCommerceStore,authenticatedMember,requireSameOrigin});
+require('./customer-agreements').attach(app, {root:ROOT,dataDir:DATA_DIR,store:songCommerceStore,authenticatedMember,ownedSessions:profileStatusBridge.ownedSessions});
 const customerSongRequests = require('./customer-song-requests').attach(app, {
   dataDir:DATA_DIR, config:songCommerceConfig, transferAuth,
   freezeMessage:birthdayMessageBridge.freezeForCommit
@@ -996,3 +998,4 @@ async function start() {
 
 if (require.main === module) start().catch(error => { console.error(error); process.exit(1); });
 module.exports = { app, start, sign, verifySigned, sha256 };
+

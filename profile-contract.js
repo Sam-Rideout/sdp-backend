@@ -64,4 +64,13 @@ function certificate(body,value){
  const result=binding({...c,owner_member_id:c.wix_member_id},value);
  return result;
 }
-module.exports={policy,policyFor,canonical,hash,email,config,fields,consent,manifest,binding,certificate};
+function captureConfig(value){
+ // Keep operational/account capture settings in their existing file. Only the
+ // reviewed previous wording may be upgraded to the active agreement revision.
+ if(value.consent_version===policy.consent_version)return value;
+ const previous=policyFor({profile_contract_sha256:'71d593977b26b1c3f99c3560ad87a03c215fb753417170b107b5ce8874b10f0a'});
+ requireValue(value.consent_version===previous.consent_version&&value.consent_notice===previous.consent_notice&&hash(value.consent_choices)===hash(previous.consent_choices),'Unreviewed capture consent configuration differs.');
+ return {...value,consent_version:policy.consent_version,consent_notice:policy.consent_notice,consent_choices:policy.consent_choices};
+}
+module.exports={policy,policyFor,canonical,hash,email,config,captureConfig,fields,consent,manifest,binding,certificate};
+

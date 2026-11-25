@@ -400,7 +400,15 @@ async function initialize() {
       }
     }
     $('consentNotice').textContent=config.consent_notice;
-    $('deleteChoiceText').textContent=config.consent_choices?.delete_after_order||'';
+    const oneUseText=config.consent_choices?.delete_after_order||'';
+    const oneUseWarning='WARNING: DO NOT CHOOSE THIS OPTION IF YOU WANT TO PRODUCE MORE THAN ONE SONG.';
+    const oneUseLabel=$('deleteChoiceText');
+    oneUseLabel.replaceChildren();
+    if(oneUseText.startsWith(oneUseWarning)){
+      const strong=document.createElement('strong');strong.textContent='⚠ '+oneUseWarning;
+      strong.style.display='block';strong.style.border='2px solid currentColor';strong.style.padding='12px';strong.style.marginBottom='10px';
+      oneUseLabel.append(strong,document.createTextNode(oneUseText.slice(oneUseWarning.length).trim()));
+    }else oneUseLabel.textContent=oneUseText;
     $('futureChoiceText').textContent=config.consent_choices?.future_purchases||'';
     $('developmentChoiceText').textContent=config.consent_choices?.development_use||'';
     $('consentDocument').href=config.consent_document_path||'/consent';
@@ -857,6 +865,7 @@ $('retryProgressReturn').addEventListener('click',async()=>{
   finally{progressReturnBusy=false;$('retryProgressReturn').disabled=false;}
 });
 // Initialization is started by capture-guided.js after the page is wired.
+
 
 
 

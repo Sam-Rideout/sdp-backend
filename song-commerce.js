@@ -107,6 +107,24 @@ function createStore(directory, config={}) {
     });
   }
   return {
+    async testerAgreementsForAccount(owner,email) {
+      demand(id(owner),'Signed-in account identity is required.',403);
+      // An atomic state-file snapshot: viewing agreements never mutates commerce.
+      let state;try{state=JSON.parse(await fs.readFile(stateFile,'utf8'));}catch(e){if(e.code==='ENOENT')return {records:[],issues:[]};throw e;}
+      demand(state.schema==='PX-SONG-COMMERCE-1.0','Commerce evidence needs review.',503);
+      const records=[],issues=[];
+      for(const e of Object.values(state.testers?.enrollments||{})) {
+        if(e.owner!==owner)continue;
+        const a=state.testers?.agreements?.[e.agreement_sha256];
+        if(e.email!==email||e.accepted!==true||!a||a.sha256!==e.agreement_sha256||a.version!==e.agreement_version||
+           crypto.createHash('sha256').update(a.html||'').digest('hex')!==a.sha256) {
+          issues.push({kind:'TESTER',message:'A saved tester agreement needs Project X review.'});continue;
+        }
+        records.push({kind:'TESTER',reference:e.enrollment_id,title:a.title,version:a.version,accepted_at:e.accepted_at,
+          typed_name:e.typed_name,status:e.status,revoked_at:e.revoked_at||'',document_sha256:a.sha256,document_html:a.html});
+      }
+      return {records,issues};
+    },
     testerStatus:owner=>transaction(s=>testers.status(s,owner)),
     testerConsentStatus:(owner,email)=>transaction(s=>testers.consentStatus(s,owner,email)),
     presentTesterForAccount:(owner,email)=>transaction(s=>testers.presentForAccount(s,owner,email)),
@@ -369,3 +387,4 @@ function createStore(directory, config={}) {
   };
 }
 module.exports={createStore,PRICES,PLANS,minor,digest,demand};
+
