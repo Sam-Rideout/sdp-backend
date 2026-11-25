@@ -46,12 +46,15 @@ function nameStatus(member) {
 export const getCustomerNameStatus = webMethod(Permissions.SiteMember,
   async () => nameStatus(await ownMember()));
 
-export const saveCustomerNames = webMethod(Permissions.SiteMember, async input => {
+export const saveCustomerNames = webMethod(Permissions.SiteMember, async (input, expectedMemberId) => {
   if (!input || Object.keys(input).some(key => !['firstName','lastName'].includes(key))) {
     throw new Error('Only your first and last names can be saved here.');
   }
   const requested = {firstName:name(input.firstName), lastName:name(input.lastName)};
   const member = await ownMember();
+  if (typeof expectedMemberId !== 'string' || member._id !== expectedMemberId) {
+    throw new Error('The signed-in account changed. Please reload this page.');
+  }
   const existing = names(member), contact = {};
   for (const key of ['firstName','lastName']) {
     if (existing[key] && existing[key] !== requested[key]) {

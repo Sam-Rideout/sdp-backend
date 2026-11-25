@@ -19,7 +19,7 @@ function requireNewCaptureNames(store) {
       if (!complete(identity)) return res.status(409).json({
         code:'CUSTOMER_NAME_REQUIRED',
         error:'Please save your first and last names before starting a new voice recording.',
-        profileUrl:'https://www.sdpsongs.ca/complete-profile'
+        profileUrl:'https://www.sdpsongs.ca/start-here'
       });
       next();
     } catch (error) { next(error); }

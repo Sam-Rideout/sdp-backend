@@ -443,7 +443,7 @@ async function initialize() {
         if(error.code==='CUSTOMER_NAME_REQUIRED'){
           setStatus(error.message,'account');
           const link=document.createElement('a');
-          link.href='https://www.sdpsongs.ca/complete-profile';
+          link.href='https://www.sdpsongs.ca/start-here';
           link.textContent='Save my first and last names';
           $('account').append(document.createTextNode(' '),link);
           setStatus('Your existing recordings remain available. Return here after saving your names.');

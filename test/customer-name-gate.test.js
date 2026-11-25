@@ -16,6 +16,7 @@ test('new customer recording requires both valid names',async()=>{
   for(const value of [undefined,null,'',' ', 'x'.repeat(101),'Jo\nAnn']) {
     assert.equal((await check({...identity,first_name:value})).status,409);
     assert.equal((await check({...identity,last_name:value})).body.code,'CUSTOMER_NAME_REQUIRED');
+    assert.equal((await check({...identity,last_name:value})).body.profileUrl,'https://www.sdpsongs.ca/start-here');
   }
   assert.equal((await check(identity)).next,1);
 });

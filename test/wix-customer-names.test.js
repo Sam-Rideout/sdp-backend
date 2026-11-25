@@ -30,13 +30,13 @@ test('empty Wix names require completion before new-capture handoff; read access
 });
 test('saving Unicode names signs the fresh saved account fields',async()=>{
   const f=fixture();
-  assert.equal((await f.methods.saveCustomerNames({firstName:' Élodie ',lastName:"O'Neil-Smith"})).complete,true);
+  assert.equal((await f.methods.saveCustomerNames({firstName:' Élodie ',lastName:"O'Neil-Smith"},'member-001')).complete,true);
   assert.deepEqual(f.writes,[{contact:{firstName:'Élodie',lastName:"O'Neil-Smith"}}]);
   const {ticket}=await f.methods.issueVoiceCaptureTicket({requireNames:true});
   const [body,sig]=ticket.split('.');
   assert.equal(sig,crypto.createHmac('sha256','x'.repeat(32)).update(body).digest('base64url'));
   assert.equal(JSON.parse(Buffer.from(body,'base64url')).customer_identity.first_name,'Élodie');
-  await f.methods.saveCustomerNames({firstName:'Élodie',lastName:"O'Neil-Smith"});
+  await f.methods.saveCustomerNames({firstName:'Élodie',lastName:"O'Neil-Smith"},'member-001');
   assert.equal(f.writes.length,1);
 });
 test('invalid names, foreign IDs and extra fields never write',async()=>{
@@ -49,12 +49,17 @@ test('invalid names, foreign IDs and extra fields never write',async()=>{
 });
 test('established names are preserved and only the missing field is patched',async()=>{
   const f=fixture({firstName:'Jane'});
-  await assert.rejects(f.methods.saveCustomerNames({firstName:'Other',lastName:'Doe'}));
-  await f.methods.saveCustomerNames({firstName:'Jane',lastName:'Doe'});
+  await assert.rejects(f.methods.saveCustomerNames({firstName:'Other',lastName:'Doe'},'member-001'));
+  await f.methods.saveCustomerNames({firstName:'Jane',lastName:'Doe'},'member-001');
   assert.deepEqual(f.writes,[{contact:{lastName:'Doe'}}]);
 });
 test('anonymous requests cannot read names, save names or obtain a ticket',async()=>{
   const f=fixture(); f.setMember(null);
   for(const run of [()=>f.methods.getCustomerNameStatus(),()=>f.methods.saveCustomerNames({firstName:'Jane',lastName:'Doe'}),()=>f.methods.issueVoiceCaptureTicket()]) await assert.rejects(run());
   assert.equal(f.writes.length,0); assert.equal(f.secrets.length,0);
+});
+test('a stale form for a different account cannot save names',async()=>{
+  const f=fixture();
+  await assert.rejects(f.methods.saveCustomerNames({firstName:'Jane',lastName:'Doe'},'member-002'));
+  assert.equal(f.writes.length,0);
 });
