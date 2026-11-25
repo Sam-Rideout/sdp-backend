@@ -483,7 +483,7 @@ app.get('/api/sessions', authenticatedMember, requireCaptureAccess, async (req, 
   } catch (error) { next(error); }
 });
 
-app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCaptureAccess, (req,res,next)=>additionalTraining.creationLock(req,res,next), async (req, res, next) => {
+app.post('/api/sessions', authenticatedMember, requireSameOrigin, requireCaptureAccess, require('./customer-name-gate').requireNewCaptureNames(customerIdentities), (req,res,next)=>additionalTraining.creationLock(req,res,next), async (req, res, next) => {
   return require('./tester-consent-routes').requireAcceptance(songCommerceStore)(req,res,next);
 }, async (req, res, next) => {
   try {
@@ -807,6 +807,8 @@ require('./voice-transfer-queue').attachTransferQueue(app, {
 });
 
 // PC-only transfer endpoints use a separate secret and do not expose member audio in browser APIs.
+require('./customer-name-gate').attachIdentityRead(app, transferAuth, customerIdentities);
+
 app.get('/api/transfer/sessions/:sessionId', transferAuth, transferManifest, async (req, res, next) => {
   try {
     const customer_identity = req.manifest.customer_identity || await customerIdentities.forTransfer(req.manifest.owner_member_id);
@@ -998,4 +1000,3 @@ async function start() {
 
 if (require.main === module) start().catch(error => { console.error(error); process.exit(1); });
 module.exports = { app, start, sign, verifySigned, sha256 };
-
