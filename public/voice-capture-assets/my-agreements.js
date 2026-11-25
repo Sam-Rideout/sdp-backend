@@ -11,10 +11,16 @@ async function request(url,options={}){
 function addField(list,label,value){if(value===undefined||value===null||value==='')return;list.append(text('dt',label),text('dd',String(value)));}
 function render(record){
  const card=document.createElement('article');card.append(text('h2',record.title));const list=document.createElement('dl');
- addField(list,'Version',record.version);addField(list,'Accepted',record.accepted_at);addField(list,'Reference',record.reference);
+ addField(list,'Version',record.version);addField(list,record.kind==='LEGACY_VOICE_RECORDING'?'Acceptance recorded':'Accepted',record.accepted_at);addField(list,'Reference',record.reference);
  addField(list,'Signed name',record.typed_name);addField(list,'Tester status',record.status);addField(list,'Revoked',record.revoked_at);addField(list,'Storage expiry',record.expires_at);
  if(record.choices){addField(list,'Profile storage',record.choices.retention_text||record.choices.retention);addField(list,'Optional improvement use',record.choices.improvement===true?'Accepted':record.choices.improvement===false?'Not accepted':'Not recorded');addField(list,'Improvement terms',record.choices.improvement_text);}
  addField(list,'Document fingerprint',record.document_sha256);card.append(list);
+ if(record.kind==='LEGACY_VOICE_RECORDING'){
+   const note=text('p',record.evidence_note);note.className='note';card.append(note);
+   const saved=document.createElement('details');saved.append(text('summary','Review original saved consent fields'));
+   const snapshot=text('pre',JSON.stringify(record.saved_consent,null,2));snapshot.style.whiteSpace='pre-wrap';snapshot.style.overflowWrap='anywhere';
+   saved.append(snapshot);card.append(saved);return card;
+ }
  if(record.notice)card.append(text('p',record.notice));
  const details=document.createElement('details');details.append(text('summary','Read the agreement version I accepted'));
  const frame=document.createElement('iframe');frame.setAttribute('sandbox','');frame.referrerPolicy='no-referrer';frame.title=record.title+' — accepted version';frame.loading='lazy';

@@ -34,3 +34,22 @@ test('API ignores a caller supplied account and queries only authenticated accou
   {set(){},vary(){},json(value){result=value;}},e=>error=e);
  assert.equal(error,undefined);assert.equal(seen,member);assert.equal(result.ok,true);assert.equal(result.records.length,0);
 }));
+test('reviewed historical versions display only saved evidence without inventing full documents',async()=>temp(async dataDir=>{
+ for(const version of ['customer-voice-capture-2026-10-16-v1','customer-phone-sequence-test-2026-10-09-v2']){
+  const m={program:'CUSTOMER',owner_member_id:member,session_id:'historical-session',consent:{accepted:true,version,accepted_at:'2026-10-18T02:58:10.518Z',notice_text:'Exact old notice',development_use:false,retention_policy:'Saved old policy'}};
+  const before=JSON.stringify(m),result=await service.voiceAgreements({root,dataDir,ownedSessions:async()=>[m]},member);
+  assert.equal(result.issues.length,0);assert.equal(result.records.length,1);const r=result.records[0];assert.equal(r.kind,'LEGACY_VOICE_RECORDING');assert.equal(r.version,version);assert.equal(r.saved_consent.notice_text,'Exact old notice');assert.equal(r.saved_consent.development_use,false);
+  assert.equal(r.document_url,undefined);assert.equal(r.document_sha256,undefined);assert.equal(r.choices,undefined);assert.match(r.evidence_note,/verification is not claimed/);assert.equal(JSON.stringify(m),before);
+ }
+}));
+test('missing current or unknown contract evidence remains flagged instead of reclassified as historical',async()=>temp(async dataDir=>{
+ for(const version of ['PX-VOICE-CONSENT-1.1','unrecognized-historical-version']){
+  const m={program:'CUSTOMER',owner_member_id:member,session_id:'session-x',consent:{accepted:true,version,accepted_at:'2026-10-18T00:00:00Z'}};
+  const result=await service.voiceAgreements({root,dataDir,ownedSessions:async()=>[m]},member);assert.equal(result.records.length,0);assert.equal(result.issues.length,1);
+ }
+}));
+test('historical-looking records cannot hide invalid modern contract evidence or cross account ownership',async()=>temp(async dataDir=>{
+ const m={program:'CUSTOMER',owner_member_id:member,session_id:'session-x',profile_contract_sha256:'invalid',consent:{accepted:true,version:'customer-voice-capture-2026-10-16-v1',accepted_at:'2026-10-18T00:00:00Z'}};
+ const result=await service.voiceAgreements({root,dataDir,ownedSessions:async()=>[m]},member);assert.equal(result.records.length,0);assert.equal(result.issues.length,1);
+ delete m.profile_contract_sha256;m.owner_member_id=other;await assert.rejects(service.voiceAgreements({root,dataDir,ownedSessions:async()=>[m]},member),/owner differs/);
+}));

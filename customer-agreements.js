@@ -3,6 +3,20 @@ const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('n
 const contract=require('./profile-contract');
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
 function fail(message){throw new Error(message);}
+const LEGACY_VERSIONS=new Set(['customer-voice-capture-2026-10-16-v1','customer-phone-sequence-test-2026-10-09-v2']);
+function legacyRecord(manifest){
+  const consent=manifest.consent;
+  if(manifest.program!=='CUSTOMER'||manifest.training_tier!=null||manifest.profile_contract_sha256!=null||
+    consent.consent_document_sha256!=null||consent.accepted!==true||!LEGACY_VERSIONS.has(consent.version)||
+    typeof consent.accepted_at!=='string'||!Number.isFinite(Date.parse(consent.accepted_at)))return null;
+  const fields=['version','accepted','accepted_at','current_order','retention_choice','retention_policy',
+    'future_purchase_storage','development_use','adult_confirmed','own_voice_confirmed',
+    'notice_text','choice_text','eligibility_notice','consent_evidence_sha256'];
+  const saved=Object.fromEntries(fields.filter(key=>Object.hasOwn(consent,key)).map(key=>[key,consent[key]]));
+  return {kind:'LEGACY_VOICE_RECORDING',reference:manifest.session_id,title:'Historical Voice Recording Consent',
+    accepted_at:consent.accepted_at,version:consent.version,evidence_status:'HISTORICAL_SNAPSHOT',saved_consent:saved,
+    evidence_note:'This historical record predates versioned full-document archives. The fields below are the consent details saved with this recording session. An exact archived full agreement is not available, so full-document verification is not claimed. This display grants no new permission.'};
+}
 async function documentReference(root,fingerprint){
   if(!/^[a-f0-9]{64}$/.test(fingerprint||''))fail('Saved agreement document reference is invalid.');
   const bytes=await fs.readFile(path.join(root,'public/consent-archive',fingerprint+'.html'));
@@ -15,6 +29,8 @@ async function voiceAgreements(c,member){
     if(manifest.owner_member_id!==member)fail('Recording agreement owner differs.');
     if(!manifest.consent?.accepted)continue;
     try{
+      const legacy=legacyRecord(manifest);
+      if(legacy){records.push(legacy);continue;}
       contract.manifest(manifest,member);
       const consent=manifest.consent;
       records.push({kind:'VOICE_RECORDING',reference:manifest.session_id,title:'Voice Recording Consent',
