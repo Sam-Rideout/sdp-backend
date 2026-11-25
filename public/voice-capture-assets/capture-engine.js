@@ -18,6 +18,7 @@ async function api(url, options={}) {
   if (!response.ok) {
     const error=new Error(result?.error || `Request failed (${response.status}).`);
     error.status=response.status;
+    error.code=result?.code;
     throw error;
   }
   return result;
@@ -439,7 +440,14 @@ async function initialize() {
       if(!pilotMode&&config.recording_setup_enabled===true&&config.training_source!=='SUPPLIED_RECORDING')consentBody.recording_setup=window.PXGetSessionRecordingSetup?.();
       try{const data=await api('/api/sessions',{method:'POST',headers:csrfHeaders(),body:JSON.stringify(consentBody)});if(!pilotMode&&data.session.consent?.retention_choice==='FUTURE_PURCHASES')window.PXShowConsentReminder(data.session.consent.storage_expires_at,'signed');await selectSession(data.session.session_id);setStatus('Signed in. Your new session is ready.','account');}
       catch(error){
-        try {
+        if(error.code==='CUSTOMER_NAME_REQUIRED'){
+          setStatus(error.message,'account');
+          const link=document.createElement('a');
+          link.href='https://www.sdpsongs.ca/complete-profile';
+          link.textContent='Save my first and last names';
+          $('account').append(document.createTextNode(' '),link);
+          setStatus('Your existing recordings remain available. Return here after saving your names.');
+        } else try {
           if(!await resumeOpenRecordingAfterConflict(error)){
             setStatus('Your recording session did not open. Please try again.','account');
             setStatus(error.message);
@@ -865,6 +873,7 @@ $('retryProgressReturn').addEventListener('click',async()=>{
   finally{progressReturnBusy=false;$('retryProgressReturn').disabled=false;}
 });
 // Initialization is started by capture-guided.js after the page is wired.
+
 
 
 
