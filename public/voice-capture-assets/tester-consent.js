@@ -52,9 +52,11 @@
   window.PXTesterConsent={load,ready,ensure};
   const submit=el('acceptTesterAgreement');
   if(submit){
+    const continueToCapture=()=>window.location.assign('/voice-capture');
+    const showContinue=()=>{const link=el('testerContinue');if(link)link.hidden=false;};
     const update=()=>{submit.disabled=!ready();};
     el('testerTypedName').addEventListener('input',update);el('testerAgree').addEventListener('change',update);
-    load().then(status=>{el('testerPageStatus').textContent=status.active?'Your tester agreement is already accepted. You can return to My Orders.':status.required?'Your invitation is ready. Complete the agreement below.':'No pending tester agreement is available for this signed-in account.';submit.hidden=!status.required;update();}).catch(error=>{el('testerPageStatus').textContent=error.message;submit.hidden=true;});
-    submit.addEventListener('click',async()=>{submit.disabled=true;try{await ensure();submit.hidden=true;el('testerPageStatus').textContent='Tester access is active. Return to My Orders and refresh to continue your saved song request.';}catch(error){el('testerPageStatus').textContent=error.message;}finally{update();}});
+    load().then(status=>{el('testerPageStatus').textContent=status.active?'Your tester agreement is already accepted. Continue to Voice Recording.':status.required?'Your invitation is ready. Complete the agreement below.':'No pending tester agreement is available for this signed-in account.';submit.hidden=!status.required;if(status.active)showContinue();update();}).catch(error=>{el('testerPageStatus').textContent=error.message;submit.hidden=true;});
+    submit.addEventListener('click',async()=>{submit.disabled=true;try{await ensure();submit.hidden=true;el('testerPageStatus').textContent='Tester access is active. Opening Voice Recording…';showContinue();continueToCapture();}catch(error){el('testerPageStatus').textContent=error.message;}finally{update();}});
   }
 })();
