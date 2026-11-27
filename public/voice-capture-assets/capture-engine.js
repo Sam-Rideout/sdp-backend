@@ -456,7 +456,26 @@ async function initialize() {
     if(progressReturnMode)await returnToVoiceProgress(ownedSessions);
     $('deleteSession').addEventListener('click',()=>deleteEntireSession(activeSession?.session_id));
     $('deleteSelectedSession').addEventListener('click',()=>deleteEntireSession($('sessions').value));
-    $('resume').addEventListener('click',async()=>{try{await selectSession($('sessions').value);}catch(error){setStatus(error.message);}});
+    $('resume').addEventListener('click', async () => {
+      const button = $('resume');
+      const remove = $('deleteSelectedSession');
+      const id = $('sessions').value;
+      if (busy || button.disabled || !id) return;
+      const label = button.textContent;
+      const removeWasDisabled = remove.disabled;
+      button.disabled = true;
+      remove.disabled = true;
+      button.textContent = 'Opening…';
+      try {
+        await selectSession(id);
+      } catch (error) {
+        setStatus(error.message);
+      } finally {
+        button.textContent = label;
+        button.disabled = false;
+        remove.disabled = removeWasDisabled;
+      }
+    });
     $('sectionSelect').addEventListener('change',handleSectionMenuChange);
     $('record').addEventListener('click',startRecording);
     $('stop').addEventListener('click',()=>stopRecording(false));
@@ -593,6 +612,8 @@ async function deleteEntireSession(id) {
   busy=true;
   $('deleteSession').disabled=true;$('deleteSelectedSession').disabled=true;$('resume').disabled=true;$('create').disabled=true;
   $('record').disabled=true;$('sectionSelect').disabled=true;$('finish').disabled=true;
+  const deleteLabel = $('deleteSelectedSession').textContent;
+  $('deleteSelectedSession').textContent = 'Deleting…';
   setStatus('Deleting the session…');
   let deleted=false;
   try {
@@ -609,6 +630,7 @@ async function deleteEntireSession(id) {
     setStatus('Session deleted from active Render storage. Local copies and snapshots were not deleted.');
   } catch(error){setStatus(deleted ? 'Session deleted, but the session list could not refresh. Reload the page.' : error.message);}
   finally {
+    $('deleteSelectedSession').textContent = deleteLabel;
     busy=false;$('deleteSelectedSession').disabled=false;$('resume').disabled=false;syncConsentControls();
     if(activeSession){renderSections(activeSectionId);$('sectionSelect').disabled=activeSession.status!=='RECORDING';}
     $('deleteSession').disabled=!activeSession||!['RECORDING','READY_FOR_TRANSFER','DELETE_PENDING'].includes(activeSession.status);
