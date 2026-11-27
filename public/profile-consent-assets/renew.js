@@ -9,9 +9,9 @@
   const page=new DOMParser().parseFromString(new TextDecoder().decode(bytes),'text/html'),main=page.querySelector('main');if(!main)throw new Error('Consent document is unavailable.');for(const n of main.querySelectorAll('script,iframe,style'))n.remove();el('terms').replaceChildren(...Array.from(main.childNodes,n=>document.importNode(n,true)));
   el('renew').hidden=false;status.textContent='Your existing profile will be preserved when you re-sign. Improvement use is optional and starts unchecked.';
  }catch(e){status.textContent=e.message;}}
- el('renew').addEventListener('submit',async e=>{e.preventDefault();if(busy||!current)return;busy=true;el('submit').disabled=true;
+ el('renew').addEventListener('submit',async e=>{e.preventDefault();if(busy||!current)return;const submit=el('submit'),submitLabel=submit.textContent;busy=true;submit.disabled=true;submit.textContent='Saving…';
   try{const result=await post('/api/profile-consent/renew-link',{token,expected_event_sha256:current.event_sha256,consent_version:current.consent_version,consent_document_sha256:current.consent_document_sha256,agree:el('agree').checked,adult_confirmed:el('adult').checked,own_voice_confirmed:el('adult').checked,development_use:el('improvement').checked});
    window.PXShowConsentReminder(result.expires_at,'renewed');el('renew').hidden=true;status.textContent='Consent renewed. Your existing profile is kept. New deletion deadline: '+showDate(result.expires_at)+'. No recording or retraining is needed.';
-  }catch(error){status.textContent=error.message;el('submit').disabled=false;busy=false;}
+  }catch(error){status.textContent=error.message;submit.textContent=submitLabel;submit.disabled=false;busy=false;}
  });if(token)start();else status.textContent='Open the renewal link in your Project X reminder email. This page cannot renew a profile without its valid link.';
 })();
