@@ -1,6 +1,9 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Use an existing voice recording</title>
-<style>body{background:#151515;color:#f0e9e3;font:18px system-ui;max-width:720px;margin:32px auto;padding:20px;line-height:1.5}button,input,select{font:inherit;padding:10px;margin:8px 0}button{cursor:pointer}button:disabled{cursor:default}a{color:#b8d9ff}label{display:block;margin:16px 0}input[type=checkbox]{width:24px;height:24px;vertical-align:middle}audio{width:100%}section{border:1px solid #aaa;padding:20px;margin:20px 0}#status{white-space:pre-wrap}small{overflow-wrap:anywhere}</style></head>
+<style>body{background:#151515;color:#f0e9e3;font:18px system-ui;max-width:720px;margin:32px auto;padding:20px;line-height:1.5}button,input,select{font:inherit;padding:10px;margin:8px 0}button{cursor:pointer}button:disabled{cursor:default}a{color:#b8d9ff}label{display:block;margin:16px 0}input[type=checkbox]{width:24px;height:24px;vertical-align:middle}audio{width:100%}section{border:1px solid #aaa;padding:20px;margin:20px 0}#status{white-space:pre-wrap}small{overflow-wrap:anywhere}
+@font-face{font-family:"PX Plantin";src:url("https://static.parastorage.com/fonts/v2/9b595da4-e71d-48f7-8fa3-d689c93c19e3/v1/plantin-mt-std.latin.woff2") format("woff2");font-style:normal;font-weight:400;font-display:swap}
+button{box-sizing:border-box;min-height:36px;padding:4px 10px;border-radius:6px;font:400 16px/1.2 "PX Plantin","Plantin MT Std",Georgia,serif;box-shadow:inset 0 2px 18px 2px rgba(8,127,229,.65)}
+button:disabled{box-shadow:none}</style></head>
 <body><a href="/voice-capture">Back to voice recording</a><h1>Use an existing voice recording</h1>
 <p>Use a recording of your own voice. Project X will review it before training. You can upload a PCM WAV file here, or give the file and your session ID to Project X. You must listen to and approve the saved recording yourself.</p>
 <p id="status" role="status" aria-live="polite">Checking your account...</p>
@@ -9,20 +12,20 @@
 <label><input type="radio" name="retention" value="DELETE_AFTER_ORDER"><span id="deleteLabel"></span></label>
 <label><input type="radio" name="retention" value="FUTURE_PURCHASES"><span id="retainLabel"></span></label>
 <label><input id="development" type="checkbox"><span id="developmentLabel"></span></label>
-<button id="create" type="button">Create my recording session</button></section>
+<button id="create" type="button" data-wait-text="Creating…">Create my recording session</button></section>
 <section id="source" hidden><h2>Your saved recording</h2><p>Session ID: <small id="sessionId"></small></p>
-<input id="file" type="file" accept=".wav,audio/wav"><button id="upload" type="button">Upload recording</button>
+<input id="file" type="file" accept=".wav,audio/wav"><button id="upload" type="button" data-wait-text="Uploading…">Upload recording</button>
 <p>PCM WAV, up to 64 MiB. If Project X is uploading your file, return here and refresh to listen before approving it.</p>
 <audio id="preview" controls hidden></audio><small id="fingerprint"></small>
 <label><input id="approve" type="checkbox"> I listened to this saved recording, confirm it is my own voice, and approve this exact file for training.</label>
-<button id="submit" type="button" disabled>Approve recording and request training</button></section>
+<button id="submit" type="button" data-wait-text="Submitting…" disabled>Approve recording and request training</button></section>
 <section id="progress" hidden><h2>Voice profile preparation</h2><p id="phase"></p><div id="options"></div><button id="newSession" type="button">Submit another recording</button></section>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);let config,session,busy=false,revision=0;
 async function api(url,options={}){const r=await fetch(url,{credentials:'same-origin',...options});let b;try{b=await r.json();}catch{throw Error('Project X returned an unreadable response.');}if(!r.ok)throw Error(b.error||'The request could not be completed.');return b;}
 function message(s){$('status').textContent=s;}
-async function action(fn){if(busy)return;busy=true;for(const b of document.querySelectorAll('button'))b.disabled=true;try{await fn();}catch(e){message(e.message);}finally{busy=false;render();}}
+async function action(fn){if(busy)return;const button=document.activeElement instanceof HTMLButtonElement?document.activeElement:null;const original=button?.textContent;busy=true;if(button){button.disabled=true;button.textContent=button.dataset.waitText||'Please wait…';}for(const b of document.querySelectorAll('button'))b.disabled=true;try{await fn();}catch(e){message(e.message);}finally{if(button)button.textContent=original;busy=false;render();}}
 function render(){
  $('consent').hidden=Boolean(session);$('source').hidden=!session||session.status!=='RECORDING';$('progress').hidden=!session||session.status==='RECORDING';
  const clip=session?.sections?.['1']?.takes?.[0];$('create').disabled=busy;$('upload').disabled=busy||Boolean(clip);$('file').disabled=busy||Boolean(clip);
