@@ -38,6 +38,24 @@ button:is(#guidedConsentBack, #guidedConsentNext, #guidedMicBack, #guidedPreviou
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+button:is(#resume, #deleteSelectedSession, #guidedBegin) {
+  box-sizing: border-box;
+  width: min(260px, 100%);
+  min-height: 36px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font: 400 16px/1.2 "PX Plantin", "Plantin MT Std", Georgia, serif;
+  white-space: normal;
+}
+
+button:is(#resume, #deleteSelectedSession, #guidedBegin):enabled {
+  box-shadow: inset 0 2px 18px 2px rgba(8, 127, 229, 0.65);
+}
+
+button:is(#resume, #deleteSelectedSession, #guidedBegin):enabled:active {
+  filter: brightness(0.85);
+}
 </style>
 </head>
 <body><header class="px-site-header"><div class="px-header-inner"><a class="px-brand return-project-x" data-px-navigation href="https://www.sdpsongs.ca" aria-label="SDP Project X home"><img src="/voice-capture-assets/project-x-logo.png" width="2171" height="724" alt="SDP Project X — Sammy Dean Productions Ltd."></a><div class="px-header-tools"><button id="pxMenuToggle" class="px-menu-toggle" type="button" aria-expanded="false" aria-controls="pxMenuOverlay" aria-haspopup="dialog" aria-label="Open site menu"><span class="px-menu-icon" aria-hidden="true"><i></i><i></i><i></i></span></button></div></div><div id="pxMenuOverlay" class="px-menu-overlay" role="dialog" aria-modal="true" aria-label="Site navigation" hidden><div class="px-menu-drawer"><button id="pxMenuClose" class="px-menu-close" type="button" aria-label="Close site menu"><span aria-hidden="true">×</span></button><nav id="pxSiteMenu" class="px-site-nav" aria-label="Main site navigation"><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca">Home</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/start-here">About</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/pricing">Products and Pricing</a><a class="return-project-x" data-px-navigation href="/voice-capture" aria-current="page">Voice Capture</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/occasion">Choose Your Occasion</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/orders">My Orders</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/your-voice-and-privacy">Your Voice And Privacy</a><a class="return-project-x" data-px-navigation href="/my-agreements">My Agreements</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/profiles">Manage Voice Profiles</a></nav><p id="pxMenuStatus" class="px-menu-status" role="alert"></p></div></div></header><div class="px-tagline"><span class="px-equalizer" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span>Their Occasion. Your Personal Touch</span></div>
@@ -164,7 +182,7 @@ button:is(#guidedConsentBack, #guidedConsentNext, #guidedMicBack, #guidedPreviou
 <div class="actions"><button id="guidedPrevious" class="secondary">← Back</button><button id="guidedNext" class="primary" disabled>Keep saved takes & next →</button></div><p class="fine-print">Feel free to repeat this section for better results.</p><div id="finishStandard" class="note" hidden><h2 id="finishStandardTitle"></h2><p id="finishStandardText"></p><button id="finish" class="secondary">Review recordings →</button></div><details class="session-tools"><summary>Session options</summary><p class="fine-print">Deleting a session removes its recordings from active Render storage. It does not delete local copies or snapshots.</p><button id="logout" class="secondary">Sign out of recorder</button><button id="deleteSession" class="danger">Delete entire recording session</button></details></main>
 <section id="guidedReview" hidden><span class="eyebrow">REVIEW & FINISH</span><h1>Your voice.<br>Ready for the next step.</h1><p class="lede">Review your saved recordings before submitting them for preparation.</p><div id="guidedReviewSummary" class="panel"></div><div id="guidedReviewSections" class="section-grid"></div><p class="note">Submitting approves your saved Sections 1–8 takes for voice-model training. The optional birthday message stays separate. You cannot add or replace recordings after submitting.</p><p>Allow 1 to 2 hours once processing begins. Waiting time or technical issues can make it longer. You can leave and return to Voice Profile Progress after signing in to the same account.</p><div class="actions"><button id="guidedReviewBack" class="secondary">← Review recordings</button><button id="guidedSubmit" class="primary" disabled>Submit Recordings for Training →</button></div></section>
 <p id="globalStatus" class="status" role="alert" aria-live="assertive"></p></div></div><footer class="px-site-footer"><span><strong>SDP Project X</strong> · Guided voice recording</span><a href="mailto:sdp.projectx.contact@gmail.com">sdp.projectx.contact@gmail.com</a><span>© 2026 Sammy Dean Productions Ltd.</span></footer>
-<script src="/profile-consent-assets/reminder.js?v=1"></script><script src="/voice-capture-assets/lessons.js?v=1"></script><script src="/voice-capture-assets/tester-consent.js?v=20261119-2"></script><script src="/voice-capture-assets/capture-engine.js?v=20261125-consent-1.1"></script><script src="/voice-capture-assets/capture-guided.js?v=20261121-training-1"></script><script src="/voice-capture-assets/consent-details.js?v=1" defer></script><script src="/voice-capture-assets/site-menu.js?v=20261112-3" defer></script></body></html>
+<script src="/profile-consent-assets/reminder.js?v=1"></script><script src="/voice-capture-assets/lessons.js?v=1"></script><script src="/voice-capture-assets/tester-consent.js?v=20261119-2"></script><script src="/voice-capture-assets/capture-engine.js?v=20261127-px-buttons"></script><script src="/voice-capture-assets/capture-guided.js?v=20261121-training-1"></script><script src="/voice-capture-assets/consent-details.js?v=1" defer></script><script src="/voice-capture-assets/site-menu.js?v=20261112-3" defer></script></body></html>
 
 
 
