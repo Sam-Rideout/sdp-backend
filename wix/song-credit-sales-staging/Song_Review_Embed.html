@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Your song | Project X</title>
-<style>
+<style>@font-face { font-family: "plantin-mt-std"; src: url("https://static.parastorage.com/fonts/v2/9b595da4-e71d-48f7-8fa3-d689c93c19e3/v1/plantin-mt-std.latin.woff2") format("woff2"); font-style: normal; font-weight: 400; font-display: swap; }\n
 :root {
     color-scheme: dark;
     font-family: Arial, Helvetica, sans-serif;
@@ -14,15 +14,8 @@
     --muted: #c7c7c7;
     /* Blue gradient sampled from the reference PX Back button. */
     --px-button-fill: linear-gradient(90deg, #003b93 0%, #0084f5 100%);
-    /* Wix dial order: inner, dark drop, cyan drop.
-       Inner: 0deg, distance 2, blur 18, size 2, opacity 65%.
-       Dark drop: 315deg, distance 10, blur 4, size 1, opacity 77%.
-       Cyan drop: distance 0, blur 24, size 0, opacity 64%.
-       Offsets follow the directions shown by the Wix angle dials. */
-    --px-button-shadows:
-        inset 0 -2px 18px 2px rgba(255,255,255,.65),
-        -7.071068px -7.071068px 4px 1px rgba(0,0,0,.77),
-        0 0 24px 0 rgba(0,240,255,.64);
+    /* Single approved inner blue shadow. */
+    --px-button-shadows: inset 0 2px 18px 2px rgba(8,127,229,.65);
 }
 * { box-sizing: border-box; }
 html, body { min-height: 100%; background: #000000; }
