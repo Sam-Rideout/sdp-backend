@@ -13,6 +13,31 @@ button:is(#guidedConsentBack, #guidedConsentNext, #guidedMicBack, #guidedPreviou
 button:is(#guidedConsentBack, #guidedConsentNext, #guidedMicBack, #guidedPrevious):enabled {
   box-shadow: inset 0 2px 18px 2px rgba(8, 127, 229, 0.65);
 }
+
+.actions.px-consent-navigation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  max-width: 532px;
+  margin-inline: auto;
+}
+
+.actions.px-consent-navigation > button {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  margin: 0;
+  padding: 4px 10px;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+@media (max-width: 540px) {
+  .actions.px-consent-navigation {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 </style>
 </head>
 <body><header class="px-site-header"><div class="px-header-inner"><a class="px-brand return-project-x" data-px-navigation href="https://www.sdpsongs.ca" aria-label="SDP Project X home"><img src="/voice-capture-assets/project-x-logo.png" width="2171" height="724" alt="SDP Project X — Sammy Dean Productions Ltd."></a><div class="px-header-tools"><button id="pxMenuToggle" class="px-menu-toggle" type="button" aria-expanded="false" aria-controls="pxMenuOverlay" aria-haspopup="dialog" aria-label="Open site menu"><span class="px-menu-icon" aria-hidden="true"><i></i><i></i><i></i></span></button></div></div><div id="pxMenuOverlay" class="px-menu-overlay" role="dialog" aria-modal="true" aria-label="Site navigation" hidden><div class="px-menu-drawer"><button id="pxMenuClose" class="px-menu-close" type="button" aria-label="Close site menu"><span aria-hidden="true">×</span></button><nav id="pxSiteMenu" class="px-site-nav" aria-label="Main site navigation"><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca">Home</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/start-here">About</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/pricing">Products and Pricing</a><a class="return-project-x" data-px-navigation href="/voice-capture" aria-current="page">Voice Capture</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/occasion">Choose Your Occasion</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/orders">My Orders</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/your-voice-and-privacy">Your Voice And Privacy</a><a class="return-project-x" data-px-navigation href="/my-agreements">My Agreements</a><a class="return-project-x" data-px-navigation href="https://www.sdpsongs.ca/profiles">Manage Voice Profiles</a></nav><p id="pxMenuStatus" class="px-menu-status" role="alert"></p></div></div></header><div class="px-tagline"><span class="px-equalizer" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span>Their Occasion. Your Personal Touch</span></div>
@@ -79,7 +104,7 @@ button:is(#guidedConsentBack, #guidedConsentNext, #guidedMicBack, #guidedPreviou
       <p id="pilotAccessMessage" class="help" hidden></p>
       <p id="pilotEmailRow" class="help" hidden>Your signed-in Wix email: <code id="pilotEmail"></code>. If you expected an invitation, confirm this is the email on the Wix account and contact Sam.</p>
     </div>
-<div class="actions"><button id="guidedConsentBack" class="secondary">← Back</button><button id="guidedConsentNext" class="primary" disabled>Continue to microphone setup →</button></div>
+<div class="actions px-consent-navigation"><button id="guidedConsentBack" class="secondary">← Back</button><button id="guidedConsentNext" class="primary" disabled>Continue to microphone setup →</button></div>
     <p id="setupBlock" class="help" hidden>New sessions are disabled until the prompts and consent wording have been approved in the server configuration.</p>
   </section>
 
