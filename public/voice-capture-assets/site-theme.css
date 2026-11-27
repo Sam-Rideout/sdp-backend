@@ -91,3 +91,52 @@ body.px-menu-open{overflow:hidden}
 :where(button.primary, button.secondary, button.quiet, button.danger, .sdp-progress-actions > button, .sdp-progress-actions > a:not(.text-button)):is(:disabled, [aria-disabled="true"]) {
   box-shadow: none !important;
 }
+
+
+/* PX button hover standard: black background, white text. */
+:is(
+  button.primary,
+  button.secondary,
+  button.quiet,
+  button.danger,
+  .sdp-progress-actions > button,
+  .sdp-progress-actions > a:not(.text-button),
+  .actions > button:not(.text-button),
+  .take-actions > button,
+  .section-grid > button,
+  #sectionPickerList > button,
+  .session-tools button
+):not(:disabled):not([aria-disabled="true"]):not(#guidedTestRecord):not(#guidedTestStop):not(#record):not(#stop):hover,
+:is(
+  button.primary,
+  button.secondary,
+  button.quiet,
+  button.danger,
+  .sdp-progress-actions > button,
+  .sdp-progress-actions > a:not(.text-button),
+  .actions > button:not(.text-button),
+  .take-actions > button,
+  .section-grid > button,
+  #sectionPickerList > button,
+  .session-tools button
+):not(:disabled):not([aria-disabled="true"]):not(#guidedTestRecord):not(#guidedTestStop):not(#record):not(#stop):active {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border-color: #000000 !important;
+  filter: none !important;
+}
+:is(
+  button.primary,
+  button.secondary,
+  button.quiet,
+  button.danger,
+  .sdp-progress-actions > button,
+  .sdp-progress-actions > a:not(.text-button),
+  .actions > button:not(.text-button),
+  .take-actions > button,
+  .section-grid > button,
+  #sectionPickerList > button,
+  .session-tools button
+):not(:disabled):not([aria-disabled="true"]):not(#guidedTestRecord):not(#guidedTestStop):not(#record):not(#stop):is(:hover, :active) * {
+  color: #ffffff !important;
+}
