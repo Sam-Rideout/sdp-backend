@@ -196,9 +196,10 @@ small { color: var(--muted); line-height: 1.65; display: block; }
 <section class="card"><h2>Manage your monthly plan</h2><button id="loadPlans" class="secondary">Show my subscriptions</button><div id="myPlans"></div></section>
 <div class="actions"><button id="refresh" class="secondary">Refresh status</button><a href="https://www.sdpsongs.ca/orders" target="_top">Return to My Orders</a></div>
 </main><script>
-const $=id=>document.getElementById(id);let current=null,busy=false,pricingReady=false,plans={},bundles={},credits=0,reloadAudio=false,mode='LOADING',canChoose=false,pendingMonthlyPlan='',pendingMonthlyAmount=null,tester={active:false};
+const $=id=>document.getElementById(id);let current=null,busy=false,busyButton=null,busyButtonLabel='',pricingReady=false,plans={},bundles={},credits=0,reloadAudio=false,mode='LOADING',canChoose=false,pendingMonthlyPlan='',pendingMonthlyAmount=null,tester={active:false};
 // The parent Wix page receives only actions; its backend checks the signed-in owner.
 const tell=data=>parent.postMessage({channel:'PX_SONG_REVIEW',...data},'*');
+function runAction(data,button,label){if(busy)return;busy=true;if(button){busyButton=button;busyButtonLabel=button.textContent;button.textContent=label;}buttons();tell(data);}
 function buttons(){const blocked=busy||Boolean(pendingMonthlyPlan);const valid=current&&!current.authorized&&$('approve').checked&&!blocked;
 $('promotion').disabled=!(valid&&current.promotion_available===true&&current.state==='REVIEW');
 $('credit').disabled=!(valid&&credits>0&&current.state==='REVIEW');$('pay').disabled=!valid;
@@ -232,7 +233,7 @@ if(m.type==='INIT')tell({type:'READY'});
 if(m.type==='MODE')setMode(m);
 if(m.type==='CHOOSE'){clearReview();$('empty').hidden=true;$('status').textContent=pricingReady?m.message:'Current product prices could not be loaded. Please choose Refresh status.';buttons();}
 if(m.type==='POLL'&&!busy&&!pendingMonthlyPlan&&$('audio').paused)tell({type:'REFRESH'});
-if(m.type==='BUSY'){busy=!!m.value;buttons();}
+if(m.type==='BUSY'){busy=!!m.value;if(!busy&&busyButton){busyButton.textContent=busyButtonLabel;busyButton=null;busyButtonLabel='';}buttons();}
 if(m.type==='ERROR'||m.type==='NOTICE'){$('status').textContent=m.message;}
 if(m.type==='MY_PLANS'){
   $('myPlans').replaceChildren();
@@ -253,7 +254,7 @@ if(m.type==='MY_PLANS'){
       detail=plan.status+'. Monthly renewal is stopped. Your earned song credits remain usable.';
     }
     p.textContent=plan.name+' — '+detail;$('myPlans').append(p);
-    if(plan.canCancel){const b=document.createElement('button');b.textContent='Stop monthly renewal';b.className='secondary';b.onclick=()=>{if(confirm('Stop future renewals? Your earned song credits will remain usable.'))tell({type:'CANCEL_PLAN',orderId:plan.orderId});};$('myPlans').append(b);}
+    if(plan.canCancel){const b=document.createElement('button');b.textContent='Stop monthly renewal';b.className='secondary';b.onclick=()=>{if(!busy&&confirm('Stop future renewals? Your earned song credits will remain usable.'))runAction({type:'CANCEL_PLAN',orderId:plan.orderId},b,'Cancelling…');};$('myPlans').append(b);}
   }
 }
 if(m.type==='LIST'){tester=m.data.tester||{active:false};$('testerStatus').hidden=tester.status==='NOT_ENROLLED'||!tester.status;$('withdrawTester').hidden=!tester.active;$('testerNotice').textContent=tester.active?'Your invitation has been accepted. Tester status is active until revoked. Promotional songs cost $0, use no credits, and start no subscription.':'Tester enrollment: '+tester.status+'.';
@@ -272,11 +273,11 @@ if(m.type==='EMPTY'||m.type==='UNAVAILABLE'){
 }
 if(m.type==='REVIEW')display(m.data);});
 for(const [id,productType] of [['chooseVoice','VOICE_CLONE'],['chooseOriginalMessage','ORIGINAL_MESSAGE'],['chooseOriginalOnly','ORIGINAL_ONLY']])$(id).onclick=()=>{
-  if(busy||mode!=='CHOOSE'||!canChoose)return;tell({type:'CHOOSE_PRODUCT',productType});
+  if(busy||mode!=='CHOOSE'||!canChoose)return;runAction({type:'CHOOSE_PRODUCT',productType},$(id),'Opening…');
 };
 $('approve').addEventListener('change',buttons);
 for(const [id,type] of [['credit','CREDIT'],['pay','PAY'],['promotion','PROMOTION']])$(id).addEventListener('click',()=>{
-if(!current||!$('approve').checked||busy)return;tell({type,reviewId:current.review_id,previewSha256:current.preview_sha256,approved:true});});
+if(!current||!$('approve').checked||busy)return;const label=type==='PAY'?'Opening payment…':type==='CREDIT'?'Approving with credit…':'Approving…';runAction({type,reviewId:current.review_id,previewSha256:current.preview_sha256,approved:true},$(id),label);});
 function closeMonthlyConfirmation(restoreFocus=true){
   const key=pendingMonthlyPlan;pendingMonthlyPlan='';pendingMonthlyAmount=null;
   $('monthlyConfirmAgree').checked=false;$('monthlyConfirmation').hidden=true;
@@ -302,16 +303,16 @@ $('monthlyConfirmCancel').onclick=()=>closeMonthlyConfirmation();
 $('monthlyConfirmContinue').onclick=()=>{
   if(busy||!pendingMonthlyPlan||mode!=='CHOOSE'||!$('monthlyConfirmAgree').checked)return;
   const key=pendingMonthlyPlan,amount=pendingMonthlyAmount;closeMonthlyConfirmation(false);
-  busy=true;buttons();tell({type:'PLAN',plan:key,expectedAmountMinor:amount});
+  runAction({type:'PLAN',plan:key,expectedAmountMinor:amount},$('monthlyConfirmContinue'),'Opening payment…');
 };
-$('withdrawTester').onclick=()=>{if(!busy&&tester.active&&confirm('Leave the promotional tester program? New free requests stop immediately, and pending promotional samples will pause.'))tell({type:'TESTER_WITHDRAW'});};
+$('withdrawTester').onclick=()=>{if(!busy&&tester.active&&confirm('Leave the promotional tester program? New free requests stop immediately, and pending promotional samples will pause.'))runAction({type:'TESTER_WITHDRAW'},$('withdrawTester'),'Saving…');};
 $('twenty').onclick=()=>{
   const bundle=bundles.TWENTY;
   if(busy||pendingMonthlyPlan||mode!=='CHOOSE'||!bundle)return;
-  busy=true;buttons();tell({type:'BUNDLE',bundle:'TWENTY',expectedAmountMinor:bundle.amountMinor});
+  runAction({type:'BUNDLE',bundle:'TWENTY',expectedAmountMinor:bundle.amountMinor},$('twenty'),'Opening payment…');
 };
-$('loadPlans').onclick=()=>tell({type:'MY_PLANS'});
-$('refresh').onclick=()=>tell({type:'REFRESH'});
+$('loadPlans').onclick=()=>runAction({type:'MY_PLANS'},$('loadPlans'),'Loading…');
+$('refresh').onclick=()=>runAction({type:'REFRESH'},$('refresh'),'Loading…');
 $('audio').addEventListener('error',()=>{if(!current)return;reloadAudio=true;$('status').textContent='Refreshing your preview link…';tell({type:'REFRESH'});});
 window.addEventListener('pageshow',()=>{if(!pendingMonthlyPlan)tell({type:'REFRESH'});});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!pendingMonthlyPlan)tell({type:'REFRESH'});});
