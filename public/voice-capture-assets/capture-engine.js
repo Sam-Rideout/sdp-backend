@@ -456,7 +456,26 @@ async function initialize() {
     if(progressReturnMode)await returnToVoiceProgress(ownedSessions);
     $('deleteSession').addEventListener('click',()=>deleteEntireSession(activeSession?.session_id));
     $('deleteSelectedSession').addEventListener('click',()=>deleteEntireSession($('sessions').value));
-    $('resume').addEventListener('click',async()=>{try{await selectSession($('sessions').value);}catch(error){setStatus(error.message);}});
+    $('resume').addEventListener('click', async () => {
+      const button = $('resume');
+      const remove = $('deleteSelectedSession');
+      const id = $('sessions').value;
+      if (busy || button.disabled || !id) return;
+      const label = button.textContent;
+      const removeWasDisabled = remove.disabled;
+      button.disabled = true;
+      remove.disabled = true;
+      button.textContent = 'Opening…';
+      try {
+        await selectSession(id);
+      } catch (error) {
+        setStatus(error.message);
+      } finally {
+        button.textContent = label;
+        button.disabled = false;
+        remove.disabled = removeWasDisabled;
+      }
+    });
     $('sectionSelect').addEventListener('change',handleSectionMenuChange);
     $('record').addEventListener('click',startRecording);
     $('stop').addEventListener('click',()=>stopRecording(false));
@@ -464,7 +483,7 @@ async function initialize() {
     $('discardTake').addEventListener('click',discardTake);
     $('finish').addEventListener('click',guidedOpenReview);
     $('closeSavedPlayback').addEventListener('click',clearSavedPlayback);
-    $('logout').addEventListener('click',async()=>{if(busy||takeBlob){setStatus('Finish saving or discard the unsaved take before signing out.','sectionStatus');return;}clearSavedPlayback();await api('/api/session/logout',{method:'POST'});location.reload();});
+    $('logout').addEventListener('click',async()=>{const button=$('logout');if(busy||takeBlob){setStatus('Finish saving or discard the unsaved take before signing out.','sectionStatus');return;}if(button.disabled)return;const label=button.textContent;button.disabled=true;button.textContent='Signing out…';clearSavedPlayback();try{await api('/api/session/logout',{method:'POST'});location.reload();}catch(error){button.disabled=false;button.textContent=label;setStatus('Could not sign out: '+error.message);}});
   }catch(error){if(progressReturnMode)showProgressReturn('Could not reopen progress. Use Refresh voice-profile progress to try again, or return to Project X and reopen this page after signing in.');$('account').textContent=error.message; if(error.message.includes('Sign in')) $('account').textContent='You must be signed in to your Project X account to continue. Return to the Project X website, sign in, then reopen Voice Capture.';}
 }
 
@@ -593,6 +612,8 @@ async function deleteEntireSession(id) {
   busy=true;
   $('deleteSession').disabled=true;$('deleteSelectedSession').disabled=true;$('resume').disabled=true;$('create').disabled=true;
   $('record').disabled=true;$('sectionSelect').disabled=true;$('finish').disabled=true;
+  const deleteLabel = $('deleteSelectedSession').textContent;
+  $('deleteSelectedSession').textContent = 'Deleting…';
   setStatus('Deleting the session…');
   let deleted=false;
   try {
@@ -609,6 +630,7 @@ async function deleteEntireSession(id) {
     setStatus('Session deleted from active Render storage. Local copies and snapshots were not deleted.');
   } catch(error){setStatus(deleted ? 'Session deleted, but the session list could not refresh. Reload the page.' : error.message);}
   finally {
+    $('deleteSelectedSession').textContent = deleteLabel;
     busy=false;$('deleteSelectedSession').disabled=false;$('resume').disabled=false;syncConsentControls();
     if(activeSession){renderSections(activeSectionId);$('sectionSelect').disabled=activeSession.status!=='RECORDING';}
     $('deleteSession').disabled=!activeSession||!['RECORDING','READY_FOR_TRANSFER','DELETE_PENDING'].includes(activeSession.status);
@@ -658,7 +680,8 @@ async function startAfterCompletedTransfer() {
   transferEndBusy=true;
   cancelTransferCompleteTimer();
   const completedId=activeSession.session_id;
-  $('startAfterTransfer').disabled=true;
+  const startButton=$('startAfterTransfer'),startLabel=startButton.textContent;
+  startButton.disabled=true;startButton.textContent='Opening…';
   try {
     await refreshSessions();
     if(activeSession?.session_id!==completedId)return;
@@ -671,7 +694,7 @@ async function startAfterCompletedTransfer() {
     guidedResetIntro();setStatus('Your previous transfer is complete. You can start a new session below.');
   } catch(error) {
     $('transferCompleteHelp').textContent='Could not load the new-session screen. Tap Start another recording session to try again.';
-  } finally {transferEndBusy=false;$('startAfterTransfer').disabled=false;}
+  } finally {transferEndBusy=false;startButton.disabled=false;startButton.textContent=startLabel;}
 }
 async function refreshCompletedTransferScreen() {
   if(transferScreenRefreshBusy||busy||!activeSession)return;
@@ -781,10 +804,10 @@ async function choosePhoneKey(sid,packageId,shift){
 }
 $('phoneTrainingEnd').addEventListener('click',async()=>{
   if(!phoneSnapshot||!['READY','FAILED','REVIEW_REQUIRED'].includes(phoneSnapshot.phase))return;
-  $('phoneTrainingEnd').disabled=true;
+  const endButton=$('phoneTrainingEnd'),endLabel=endButton.textContent;endButton.disabled=true;endButton.textContent='Loading…';
   try{await refreshSessions();activeSession=null;phoneSnapshot=null;phoneOptionsRevision='';$('phoneKeyOptions').replaceChildren();$('phoneTrainingCard').hidden=true;$('startCard').hidden=false;$('startCard').scrollIntoView({behavior:'smooth',block:'start'});guidedResetIntro();setStatus('You can begin a new recording session or return to Project X.');}
   catch(error){$('phoneTrainingHelp').textContent='Could not refresh the page. Tap Start another recording session to try again.';}
-  finally{$('phoneTrainingEnd').disabled=false;}
+  finally{endButton.disabled=false;endButton.textContent=endLabel;}
 });
 setInterval(refreshPhoneTraining,5000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshPhoneTraining();});
@@ -852,17 +875,22 @@ $('chooseOtherProgress').addEventListener('click',()=>{
   showProgressReturn('Choose the submitted recording whose progress you want to view.');
   $('progressSessionChoices').hidden=false;
 });
+let openProgressBusy=false;
 $('openProgressSession').addEventListener('click',async()=>{
+  const button=$('openProgressSession');
+  if(openProgressBusy)return;
+  openProgressBusy=true;button.disabled=true;const label=button.textContent;button.textContent='Opening…';
   try{await openProgressSession($('progressSessions').value);}
   catch(error){showProgressReturn(error.message);$('progressSessionChoices').hidden=false;}
+  finally{openProgressBusy=false;button.disabled=false;button.textContent=label;}
 });
 let progressReturnBusy=false;
 $('retryProgressReturn').addEventListener('click',async()=>{
   if(progressReturnBusy)return;
-  progressReturnBusy=true;$('retryProgressReturn').disabled=true;
+  progressReturnBusy=true;const button=$('retryProgressReturn'),label=button.textContent;button.disabled=true;button.textContent='Loading…';
   try{const sessions=await refreshSessions();await returnToVoiceProgress(sessions);}
   catch(error){showProgressReturn('Could not refresh your progress. Return to Project X and sign in again if needed.');}
-  finally{progressReturnBusy=false;$('retryProgressReturn').disabled=false;}
+  finally{progressReturnBusy=false;button.disabled=false;button.textContent=label;}
 });
 // Initialization is started by capture-guided.js after the page is wired.
 

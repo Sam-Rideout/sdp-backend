@@ -32,7 +32,7 @@ function render(record){
  details.append(frame);card.append(details);return card;
 }
 async function load(){
- if(busy)return;busy=true;$('refresh').disabled=true;$('records').replaceChildren();$('status').textContent='Loading your saved agreements…';$('coverage').textContent='';
+ if(busy)return;busy=true;$('refresh').disabled=true;$('refresh').textContent='Loading…';$('records').replaceChildren();$('status').textContent='Loading your saved agreements…';$('coverage').textContent='';
  try{
   const params=new URLSearchParams(location.hash.slice(1)),ticket=params.get('ticket');
   // Remove the handoff before any further navigation or resource interaction.
@@ -45,7 +45,7 @@ async function load(){
   $('status').textContent=result.records.length?result.records.length+' saved agreement record(s).':'No saved agreements were found for this signed-in account.';
   $('coverage').textContent=result.coverage_note||'';
  }catch(error){$('status').textContent=error.message;$('status').className='error';}
- finally{busy=false;$('refresh').disabled=false;}
+ finally{busy=false;$('refresh').disabled=false;$('refresh').textContent='Refresh Agreements';}
 }
 $('refresh').addEventListener('click',load);load();
 })();

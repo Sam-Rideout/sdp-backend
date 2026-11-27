@@ -150,14 +150,17 @@ $('guidedBegin').addEventListener('click',()=>{if(config?.capture_enabled)guided
 $('guidedConsentBack').addEventListener('click',()=>guidedShow('guidedIntro'));
 $('guidedConsentNext').addEventListener('click',async()=>{
  const accepted=config?.capture_mode==='LIMITED_HELPER_PILOT'?$('pilotUnderstood').checked:customerConsentAccepted();
- if(!config?.capture_enabled||!accepted)return;
- $('guidedConsentNext').disabled=true;
+ const next = $('guidedConsentNext');
+ if(next.disabled||!config?.capture_enabled||!accepted)return;
+ const label = next.textContent;
+ next.disabled = true;
+ next.textContent = 'Opening…';
  try{
   if(await window.PXTesterConsent.ensure()){
    guidedShow('guidedMic');$('create').hidden=false;
   }
  }catch(error){setStatus(error.message);}
- finally{guidedConsentUpdate();}
+ finally{next.textContent = label;guidedConsentUpdate();}
 });
 $('guidedMicBack').addEventListener('click',()=>guidedShow(activeSession?'captureCard':'startCard'));
 $('guidedTestRecord').addEventListener('click',guidedRecordTest);$('guidedTestStop').addEventListener('click',guidedStopTest);

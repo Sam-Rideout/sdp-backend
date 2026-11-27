@@ -16,6 +16,22 @@ main{max-width:730px;margin:0 auto;background:rgba(250,253,255,.88);box-shadow:0
 button{font:700 15px Arial,sans-serif;min-height:51px;padding:12px 14px;border:1px solid #8195a6;border-radius:7px;background:#edf1f4;color:#18364f;cursor:pointer}button:not(:disabled):hover{background:#dce5ec}button.primary{background:#00dcef;color:#082c3e;border:2px solid #007c8b;box-shadow:0 3px 10px #007c8b33;font-size:17px}button.primary:not(:disabled):hover{background:#46edfa}button:disabled{cursor:not-allowed;opacity:.46;box-shadow:none}button:focus-visible,input:focus-visible{outline:3px solid #153b5f;outline-offset:3px}[hidden]{display:none!important}
 .full{display:block;width:100%;margin-top:11px}.status{min-height:48px;line-height:1.5;padding:14px 0;color:#274964;font-size:15px}audio{display:block;width:100%;margin:10px 0 17px}.fine{font-size:12px;color:#58748d;margin-top:22px}
 @media(max-width:540px){.buttons{grid-template-columns:1fr}.timer{font-size:28px}main{padding:22px 18px}}
+@font-face {
+  font-family: "PX Plantin";
+  src: url("https://static.parastorage.com/fonts/v2/9b595da4-e71d-48f7-8fa3-d689c93c19e3/v1/plantin-mt-std.latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+main button[id] {
+  min-height: 36px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font: 400 16px/1.2 "PX Plantin", "Plantin MT Std", Georgia, serif;
+}
+main button[id]:enabled { box-shadow: inset 0 2px 18px 2px rgba(8, 127, 229, 0.65) !important; }
+main button[id]:disabled { box-shadow: none !important; }
+main button[id]:enabled:active { filter: brightness(0.85); }
 </style>
 </head>
 <body>

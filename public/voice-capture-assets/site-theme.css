@@ -77,3 +77,17 @@ body.px-menu-open{overflow:hidden}
 @media(max-width:1000px){.px-menu-drawer{width:48vw;padding-right:8vw}}
 @media(max-width:600px){.px-menu-toggle{width:50px;min-width:50px;height:48px;min-height:48px}.px-menu-icon{width:42px;gap:10px}.px-menu-icon i{height:3px}.px-menu-drawer{width:100%;min-width:0;padding:100px 32px 32px}.px-site-nav{margin-left:auto;min-width:0;max-width:310px;gap:8px}.px-site-nav a,.px-site-nav a[aria-current=page]{font-size:18px;min-height:43px;padding:10px 0}.px-menu-close{right:24px;top:22px}.px-menu-status{margin-left:auto}}
 @media(prefers-reduced-motion:reduce){.px-menu-overlay,.px-menu-drawer{animation:none}}
+
+
+/* PX Button Standard — standard content actions. Menu, text links and section picker stay specialized. */
+:where(button.primary, button.secondary, button.quiet, button.danger, .sdp-progress-actions > button, .sdp-progress-actions > a:not(.text-button)) {
+  font-family: "PX Plantin", "Plantin MT Std", Georgia, serif !important;
+  font-weight: 400 !important;
+}
+:where(button.primary, button.secondary, button.quiet, button.danger, .sdp-progress-actions > button, .sdp-progress-actions > a:not(.text-button)):not(:disabled):not([aria-disabled="true"]) {
+  --px-button-shadows: inset 0 2px 18px 2px rgba(8, 127, 229, 0.65);
+  box-shadow: var(--px-button-shadows) !important;
+}
+:where(button.primary, button.secondary, button.quiet, button.danger, .sdp-progress-actions > button, .sdp-progress-actions > a:not(.text-button)):is(:disabled, [aria-disabled="true"]) {
+  box-shadow: none !important;
+}
