@@ -33,17 +33,23 @@ html::-webkit-scrollbar,body::-webkit-scrollbar{display:none;width:0;height:0}
 </main><script>
 'use strict';
 const channel='PX_PUBLIC_PRICING',status=document.getElementById('status'),refresh=document.getElementById('refresh');
-let received=false,attempts=0;
+let received=false,attempts=0,refreshTimer;
+function setRefreshing(value){
+ refresh.disabled=value;
+ refresh.textContent=value?'Loading…':'Refresh Prices';
+ if(refreshTimer){clearTimeout(refreshTimer);refreshTimer=null;}
+ if(value)refreshTimer=setTimeout(()=>{setRefreshing(false);status.textContent='Prices are taking longer than expected. Choose Refresh Prices to try again.';},30000);
+}
 function send(type){parent.postMessage({channel,type},'*');}
 function money(amount){if(!Number.isSafeInteger(amount)||amount<=0||amount>10000000)throw Error('Invalid price');return '$'+(amount/100).toFixed(2)+' CAD';}
 window.addEventListener('message',event=>{
  if(event.source!==parent||event.data?.channel!==channel)return;
  const m=event.data;
  if(m.type==='INIT')send('READY');
- if(m.type==='LOADING'){received=true;refresh.disabled=true;document.getElementById('prices').hidden=true;status.textContent='Loading current prices…';}
- if(m.type==='ERROR'){received=true;refresh.disabled=false;document.getElementById('prices').hidden=true;status.textContent='Current prices could not be loaded. Please choose Refresh Prices.';}
+ if(m.type==='LOADING'){received=true;setRefreshing(true);document.getElementById('prices').hidden=true;status.textContent='Loading current prices…';}
+ if(m.type==='ERROR'){received=true;setRefreshing(false);document.getElementById('prices').hidden=true;status.textContent='Current prices could not be loaded. Please choose Refresh Prices.';}
  if(m.type==='PRICING'){
-  received=true;refresh.disabled=false;
+  received=true;setRefreshing(false);
   try{
    const d=m.data;
    if(d?.schema_version!=='PX-PUBLIC-PRICING-1.0'||d.currency!=='CAD'||d.tax_included!==true)throw Error('Invalid catalog');
@@ -63,7 +69,7 @@ window.addEventListener('message',event=>{
   }catch(error){document.getElementById('prices').hidden=true;status.textContent='Current prices could not be confirmed. Please choose Refresh Prices.';}
  }
 });
-refresh.onclick=()=>send('REFRESH');
+refresh.onclick=()=>{if(refresh.disabled)return;setRefreshing(true);status.textContent='Loading current prices…';send('REFRESH');};
 send('READY');
 const readyTimer=setInterval(()=>{if(received||++attempts>=10){clearInterval(readyTimer);if(!received)status.textContent='Prices are not connected yet. Please choose Refresh Prices.';return;}send('READY');},1000);
 </script></body></html>
