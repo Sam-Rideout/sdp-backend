@@ -4,7 +4,7 @@ The backend builds a numbered PDF after each 100 eligible completed song purchas
 
 ## Email worker
 
-`tools/purchase_archive_worker.py` polls the protected archive queue. Run it on a trusted host that has network access to the Render backend and the configured SMTP account. It uses:
+The existing `tools/profile_consent_worker.py` now also polls the protected purchase-archive queue and sends PDF attachments through the same SMTP account. It uses the existing worker's `VOICE_TRANSFER_TOKEN` and `PX_CONSENT_SMTP_*` settings; no new secrets are needed. It also accepts `PX_CONSENT_BACKEND_ORIGIN`, which already configures the profile-consent worker.
 
 - `VOICE_TRANSFER_TOKEN`
 - `PX_CONSENT_SMTP_HOST`
@@ -12,9 +12,8 @@ The backend builds a numbered PDF after each 100 eligible completed song purchas
 - `PX_CONSENT_SMTP_PASSWORD`
 - `PX_CONSENT_SMTP_PORT` (defaults to `465`)
 - `PX_CONSENT_MAIL_FROM`
-- optionally `PX_PURCHASE_ARCHIVE_BACKEND_ORIGIN`
 
-Run once to drain up to five queued messages, or use `--loop --interval 300` for continuous polling. Configure the worker with the same protected transfer token and SMTP credentials as the existing trusted mail worker. Do not put these secrets in source control or customer-facing code.
+Run `python tools/profile_consent_worker.py --loop --interval 300` on the trusted Windows worker so newly queued PDFs are sent within a few minutes. The one-shot run also drains up to five queued archive emails. Do not put the worker secrets in source control or customer-facing code.
 
 ## Data integrity
 

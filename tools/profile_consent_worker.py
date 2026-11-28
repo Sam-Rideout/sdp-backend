@@ -1,10 +1,11 @@
-"""Deliver renewal reminders and request expiry through the authenticated backend.
+"""Deliver consent reminders, expiry requests and queued purchase-history PDFs.
 No audio/model filesystem access. Run beside the existing PC deletion worker.
 """
 import argparse, json, os, re, smtplib, ssl, time, urllib.request
 from datetime import datetime
 from email.message import EmailMessage
 from urllib.parse import urlsplit, quote
+from purchase_archive_worker import Api as PurchaseArchiveApi, cycle as purchase_archive_cycle, smtp_sender as purchase_archive_smtp_sender
 
 class Api:
     def __init__(self, origin, token):
@@ -60,7 +61,8 @@ def smtp_sender(env):
             if refused: raise RuntimeError('Mail server refused the reminder recipient.')
     return send, sender
 
-def cycle(api, send, sender, *, validate_recipient=None, email_enabled=True):
+def cycle(api, send, sender, *, validate_recipient=None, email_enabled=True,
+          purchase_archive_api=None, purchase_archive_send=None):
     result = {'reminders_sent': 0, 'expiry_requests': 0, 'issues': []}
     for item in api.post('work', {}):
         try:
@@ -82,6 +84,15 @@ def cycle(api, send, sender, *, validate_recipient=None, email_enabled=True):
         except Exception as exc:
             # Never log response bodies, customer email, renewal links or credentials.
             result['issues'].append({'event_sha256': item.get('event_sha256'), 'error': type(exc).__name__})
+    if purchase_archive_api is not None and purchase_archive_send is not None:
+        try:
+            archives = purchase_archive_cycle(purchase_archive_api, purchase_archive_send)
+            result['purchase_archives_sent'] = archives['sent']
+            result['issues'].extend({'archive_id': issue.get('archive_id'), 'worker': 'PURCHASE_ARCHIVE',
+                                     'error': issue.get('error', 'WorkerError')}
+                                    for issue in archives['issues'])
+        except Exception as exc:
+            result['issues'].append({'worker': 'PURCHASE_ARCHIVE', 'error': type(exc).__name__})
     return result
 
 def main():
@@ -92,8 +103,11 @@ def main():
     if not 60 <= args.interval <= 3600: parser.error('Interval must be 60–3600 seconds.')
     api = Api(os.environ.get('PX_CONSENT_BACKEND_ORIGIN', 'https://sdp-backend-6xt7.onrender.com'), os.environ.get('VOICE_TRANSFER_TOKEN', ''))
     send, sender = smtp_sender(os.environ)
+    purchase_api = PurchaseArchiveApi(api.origin, api.token)
+    purchase_send = purchase_archive_smtp_sender(os.environ)
     while True:
-        print(json.dumps(cycle(api, send, sender)), flush=True)
+        print(json.dumps(cycle(api, send, sender, purchase_archive_api=purchase_api,
+                               purchase_archive_send=purchase_send)), flush=True)
         if not args.loop: break
         time.sleep(args.interval)
 if __name__ == '__main__':
