@@ -13,6 +13,11 @@ function attach(app,c) {
   }
   const folder=path.join(c.dataDir,'song-commerce'),audio=path.join(folder,'preview-audio');
   const store=createStore(folder,c.config);
+  const refreshPurchaseArchive=async()=>{
+    if(!c.purchaseArchive)return;
+    try{await c.purchaseArchive.refreshAll();}
+    catch(e){console.error('Purchase-history archive refresh failed:',e?.message||'unknown error');}
+  };
   app.get('/api/transfer/song-credit-bundle-status',c.transferAuth,(req,res)=>res.json({ok:true,schema_version:'PX-CREDIT-BUNDLES-1.0',bundle_key:'TWENTY',credits:20}));
   const memberAllowed=owner=>typeof owner==='string'&&(c.config.public_processing===true
     ||c.config.pilot_members?.includes(owner)===true);
@@ -68,6 +73,7 @@ function attach(app,c) {
     else if(a.operation==='PAID_CYCLE') {await requireMember(a.order?.buyer?.memberId);result=await store.grantCycle(a.order);}
     else if(a.operation==='SUBSCRIPTION_STATE') {await requireMember(a.order?.buyer?.memberId);result=await store.subscriptionState(a.order);}
     else demand(false,'Unknown provider event.',400);
+    await refreshPurchaseArchive();
     res.json({ok:true,result});
   }));
   app.post('/api/transfer/song-review-audio/:sha',c.transferAuth,c.express.raw({type:'application/octet-stream',limit:'48mb'}),route(async(req,res)=>{
@@ -110,7 +116,9 @@ function attach(app,c) {
   }));
   app.post('/api/transfer/song-review-delivered',c.transferAuth,route(async(req,res)=>{
     await requireMember(req.body?.owner);
-    res.json(await store.delivered(req.body?.owner,req.body?.review_id,req.body?.receipt_sha256));
+    const result=await store.delivered(req.body?.owner,req.body?.review_id,req.body?.receipt_sha256);
+    await refreshPurchaseArchive();
+    res.json(result);
   }));
   app.get('/api/song-review-audio/:sha',route(async(req,res)=>{
     const a=c.verifySigned(req.query.ticket),now=Math.floor(Date.now()/1000);
