@@ -9,6 +9,7 @@ const text = (s, max) => typeof s === 'string' && s.length <= max && !/[\x00-\x1
 const uuid = s => typeof s === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(s);
 const date = s => typeof s === 'string' && Number.isFinite(Date.parse(s));
 const STATUSES = new Set(['READY','QUEUED','PROCESSING','COMPLETED','REJECTED','TECHNICAL_FAILURE','CANCELLED','REFUNDED','PAYMENT_FAILED']);
+const MAX_ORDER_SNAPSHOT = 500;
 function authorized(c, now) {
   return Boolean(c && c.iss === 'wix' && c.aud === 'project-x-orders' && c.purpose === 'my-orders'
     && memberId(c.sub) && Number.isInteger(c.iat) && Number.isInteger(c.exp)
@@ -18,7 +19,7 @@ function authorized(c, now) {
 function validateSnapshot(body) {
   if (!body || body.schema_version !== 'PX-WIX-ORDER-SNAPSHOT-1.0' || !memberId(body.owner_member_id)
     || !date(body.captured_at) || Date.parse(body.captured_at) > Date.now() + 300000
-    || typeof body.truncated !== 'boolean' || !Array.isArray(body.orders) || body.orders.length > 100) {
+    || typeof body.truncated !== 'boolean' || !Array.isArray(body.orders) || body.orders.length > MAX_ORDER_SNAPSHOT) {
     throw new Error('Invalid order snapshot.');
   }
   const seen = new Set();
@@ -195,7 +196,8 @@ function attachWixOrders(app, context) {
         }
       }
       const items=all.sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)||a.id.localeCompare(b.id));
-      res.json({ok:true,items:items.slice(0,100),truncated:items.length>100||Boolean(snapshot&&snapshot.truncated),
+      res.json({ok:true,items:items.slice(0,100),truncated:Boolean(snapshot&&snapshot.truncated),
+        history_truncated:items.length>100,
         synced_at:snapshot?snapshot.captured_at:null,checked_at:new Date().toISOString()});
     }catch(e){next(e);}
   });

@@ -53,6 +53,9 @@ function createAccountSongGate(dataDir) {
     }
     for (const order of orders) {
       if (excludeSelection && order.selection_id === excludeSelection) continue;
+      // Internal test purchases are not customer work and must never hold the
+      // account admission gate, even when their legacy status is still open.
+      if (order.test_order) continue;
       const cancelled = await cancellation(order.selection_id, order.order_id);
       if (cancelled === 'CANCELLED') continue;
       if (cancelled === 'REQUESTED' || ACTIVE.has(order.order_status) || FAILED.has(order.order_status)) return true;
@@ -75,6 +78,11 @@ function createAccountSongGate(dataDir) {
       if (cancelled === 'CANCELLED') continue;
       if (cancelled === 'REQUESTED') return true;
       if (record.state === 'CANCELLED') continue;
+      // Ignore a commit only when its matching snapshot order is explicitly
+      // marked as an internal test. Customer requests still follow the normal
+      // status checks below.
+      if (orders.some(order => order.test_order && (order.selection_id === record.selection_id
+          || record.order_id && order.order_id === record.order_id))) continue;
       const linked = orders.filter(order => order.selection_id === record.selection_id
         || record.order_id && order.order_id === record.order_id);
       if (linked.length > 1 || linked.some(order => record.order_id && order.order_id !== record.order_id)) {
