@@ -92,7 +92,7 @@ function createPurchaseHistoryArchive(dataDir,commerceStore){
   const withOwnerLock=(owner,action)=>withHashedLock(hash(owner),action);
   async function refreshOwner(owner,allSales){
     return withOwnerLock(owner,async()=>{
-      const sales=completedSongs({sales:allSales}).filter(r=>r.owner===owner);
+      const sales=completedSongs(allSales).filter(r=>r.owner===owner);
       const file=ownerFile(owner);const prior=await readJson(file)||{schema_version:'PX-PURCHASE-ARCHIVE-1.0',owner_hash:hash(owner),batches:[]};
       if(prior.schema_version!=='PX-PURCHASE-ARCHIVE-1.0'||prior.owner_hash!==hash(owner)||!Array.isArray(prior.batches))throw new Error('Purchase archive needs review.');
       const used=new Set(prior.batches.flatMap(b=>Array.isArray(b.source_hashes)?b.source_hashes:[]));
@@ -116,7 +116,7 @@ function createPurchaseHistoryArchive(dataDir,commerceStore){
       return {completed_song_count:sales.length,archives_created:created};
     });
   }
-  async function refreshAll(){const result=await commerceStore.salesRecords();const owners=[...new Set(completedSongs(result).map(s=>s.owner))];const summaries=[];for(const owner of owners)summaries.push(await refreshOwner(owner,result.sales));return summaries;}
+  async function refreshAll(){const result=await commerceStore.salesRecords();const owners=[...new Set(completedSongs(result).map(s=>s.owner))];const summaries=[];for(const owner of owners)summaries.push(await refreshOwner(owner,result));return summaries;}
   async function claimPending(limit=5){
     let files=[];try{files=await fs.readdir(root);}catch(e){if(e.code==='ENOENT')return [];throw e;}
     const results=[];const nowMs=Date.now();

@@ -107,7 +107,7 @@ function attachWixOrders(app, context) {
       if(context.purchaseHistoryArchive&&context.songCommerce){
         try{
           const purchaseHistory=await context.songCommerce.salesRecords();
-          await context.purchaseHistoryArchive.refreshOwner(claims.sub,purchaseHistory.sales);
+          await context.purchaseHistoryArchive.refreshOwner(claims.sub,purchaseHistory);
         }catch(e){console.error('Purchase-history archive refresh failed:',e?.message||'unknown error');}
       }
       let snapshot=null;
