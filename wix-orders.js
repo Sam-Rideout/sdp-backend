@@ -196,8 +196,10 @@ function attachWixOrders(app, context) {
         }
       }
       const items=all.sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)||a.id.localeCompare(b.id));
-      res.json({ok:true,items:items.slice(0,100),truncated:Boolean(snapshot&&snapshot.truncated),
-        history_truncated:items.length>100,
+      const historyTruncated=items.length>100||Boolean(snapshot&&snapshot.truncated);
+      const statusTruncated=Boolean(snapshot&&snapshot.truncated&&snapshot.orders.length>100);
+      res.json({ok:true,items:items.slice(0,100),truncated:statusTruncated,
+        history_truncated:historyTruncated,
         synced_at:snapshot?snapshot.captured_at:null,checked_at:new Date().toISOString()});
     }catch(e){next(e);}
   });

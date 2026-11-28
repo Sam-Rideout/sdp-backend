@@ -38,7 +38,11 @@ function createAccountSongGate(dataDir) {
     const {readCancel} = require('./wix-cancel');
     const raw = await read(path.join(dataDir, 'order-status', hash(owner) + '.json'));
     const snapshot = raw && require('./wix-orders').validateSnapshot(raw);
-    if (snapshot && (snapshot.owner_member_id !== owner || snapshot.truncated)) {
+    // Older desktop sync versions marked a 100-row status snapshot as
+    // truncated when the customer simply had more history than the UI cap.
+    // The 100 most recent rows still provide current admission status; only a
+    // newer, larger snapshot that itself exceeds the server limit is unsafe.
+    if (snapshot && (snapshot.owner_member_id !== owner || snapshot.truncated && snapshot.orders.length > 100)) {
       gateError('SONG_STATUS_UNAVAILABLE', 'Your current song status needs review. Please contact Project X before creating another song.', 503);
     }
     const orders = snapshot ? snapshot.orders : [];
