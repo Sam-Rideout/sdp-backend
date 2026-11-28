@@ -74,6 +74,7 @@ function createAccountSongGate(dataDir) {
       const record = await read(path.join(root, name));
       if (!record) gateError('SONG_STATUS_UNAVAILABLE', 'Song request status could not be confirmed.', 503);
       if (record.owner_member_id !== owner || record.selection_id === excludeSelection) continue;
+      if (record.mode === 'ACCOUNT_TEST') continue;
       if (record.schema_version !== 'PX-CREATE-SONG-1.0' || name !== record.selection_id + '.json'
           || !['REQUESTED', 'WORKING', 'DONE', 'CANCELLED', 'NEEDS_ATTENTION'].includes(record.state)) {
         gateError('SONG_STATUS_UNAVAILABLE', 'Song request status needs Project X review.', 503);
