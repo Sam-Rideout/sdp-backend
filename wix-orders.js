@@ -104,6 +104,12 @@ function attachWixOrders(app, context) {
       if(!authorized(claims,Math.floor(Date.now()/1000))) return res.status(401).json({error:'Order authorization failed.'});
       if(!(await context.consumeTicket(claims.jti))) return res.status(401).json({error:'Order authorization was already used.'});
       await context.pruneOldReplayMarkers();
+      if(context.purchaseHistoryArchive&&context.songCommerce){
+        try{
+          const purchaseHistory=await context.songCommerce.salesRecords();
+          await context.purchaseHistoryArchive.refreshOwner(claims.sub,purchaseHistory.sales);
+        }catch(e){console.error('Purchase-history archive refresh failed:',e?.message||'unknown error');}
+      }
       let snapshot=null;
       try { snapshot=validateSnapshot(JSON.parse(await fs.readFile(path.join(root,hash(claims.sub)+'.json'),'utf8'))); }
       catch(e){if(e.code!=='ENOENT')throw e;}

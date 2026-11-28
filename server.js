@@ -955,10 +955,14 @@ const birthdayMessageBridge = require('./birthday-message').attachBirthdayMessag
 
 // New customer commerce is disabled until its reviewed configuration is enabled.
 const songCommerceConfig = require('./config/song-commerce.json');
-const songCommerceStore = require('./song-commerce-routes').attach(app, {
+const songCommerceContext = {
   dataDir:DATA_DIR, config:songCommerceConfig, express, transferAuth, verifySigned,
   consumeTicket, sign, directoryBytes, maxStoreBytes:MAX_STORE_BYTES, origin:'https://sdp-backend-6xt7.onrender.com'
-});
+};
+const songCommerceStore = require('./song-commerce-routes').attach(app, songCommerceContext);
+const purchaseHistoryArchive = require('./purchase-history-archive').createPurchaseHistoryArchive(DATA_DIR, songCommerceStore);
+songCommerceContext.purchaseArchive = purchaseHistoryArchive;
+require('./purchase-history-archive').attachPurchaseHistoryArchive(app, {archive:purchaseHistoryArchive,transferAuth});
 require('./tester-consent-routes').attach(app, {root:ROOT,store:songCommerceStore,authenticatedMember,requireSameOrigin});
 require('./customer-agreements').attach(app, {root:ROOT,dataDir:DATA_DIR,store:songCommerceStore,authenticatedMember,ownedSessions:profileStatusBridge.ownedSessions});
 const customerSongRequests = require('./customer-song-requests').attach(app, {
@@ -971,6 +975,7 @@ const createSongBridge = require('./create-song').attachCreateSong(app, {
 });
 require('./wix-orders').attachWixOrders(app, {
   customerCommerce:customerSongRequests, songCommerce:songCommerceStore,
+  purchaseHistoryArchive,
   dataDir: DATA_DIR, verifySigned, consumeTicket, pruneOldReplayMarkers, transferAuth,
   messageSummary: birthdayMessageBridge.summaryFor, creationSummary: createSongBridge.summaryFor
 });
