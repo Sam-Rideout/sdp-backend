@@ -94,7 +94,7 @@ def cycle(api, send):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--loop', action='store_true')
-    parser.add_argument('--interval', type=int, default=300)
+    parser.add_argument('--interval', type=int, default=3600)
     args = parser.parse_args()
     if not 60 <= args.interval <= 3600:
         parser.error('Interval must be 60–3600 seconds.')

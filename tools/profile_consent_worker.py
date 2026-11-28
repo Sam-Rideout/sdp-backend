@@ -98,7 +98,7 @@ def cycle(api, send, sender, *, validate_recipient=None, email_enabled=True,
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--loop', action='store_true')
-    parser.add_argument('--interval', type=int, default=300)
+    parser.add_argument('--interval', type=int, default=3600)
     args = parser.parse_args()
     if not 60 <= args.interval <= 3600: parser.error('Interval must be 60–3600 seconds.')
     api = Api(os.environ.get('PX_CONSENT_BACKEND_ORIGIN', 'https://sdp-backend-6xt7.onrender.com'), os.environ.get('VOICE_TRANSFER_TOKEN', ''))

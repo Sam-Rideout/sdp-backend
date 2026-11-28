@@ -13,7 +13,7 @@ The existing `tools/profile_consent_worker.py` now also polls the protected purc
 - `PX_CONSENT_SMTP_PORT` (defaults to `465`)
 - `PX_CONSENT_MAIL_FROM`
 
-Run `python tools/profile_consent_worker.py --loop --interval 300` on the trusted Windows worker so newly queued PDFs are sent within a few minutes. The one-shot run also drains up to five queued archive emails. Do not put the worker secrets in source control or customer-facing code.
+Run `python tools/profile_consent_worker.py --loop` on the trusted Windows worker to check for queued PDFs once per hour. Override the interval with `--interval <seconds>` if needed. A one-shot run also drains up to five queued archive emails. Do not put the worker secrets in source control or customer-facing code.
 
 ## Data integrity
 
